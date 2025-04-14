@@ -13,6 +13,7 @@
 // License: CERN-OHL-P (See LICENSE.md)
 //
 //-----------------------------------------------------------------------------
+`default_nettype none
 `timescale 1ns/1ps
 
 module carry_save_add
@@ -20,9 +21,9 @@ module carry_save_add
     parameter WIDTH = 16  
     )
    (
-    input logic [WIDTH-1:0]  in0,
-    input logic [WIDTH-1:0]  in1,
-    input logic [WIDTH-1:0]  in2,    
+    input wire [WIDTH-1:0]  in0,
+    input wire [WIDTH-1:0]  in1,
+    input wire [WIDTH-1:0]  in2,    
     //
     output logic [WIDTH-1:0] sum_out, // bit weight [WIDTH-1:0]
     output logic [WIDTH-1:0] carry_out // bit weight [WIDTH:1]
@@ -31,7 +32,8 @@ module carry_save_add
    genvar		     i;
    generate
       for (i=0; i < WIDTH; i++) begin
-	 {carry_out[i],sum_out[1]} = in0[i] + in1[i] + in2[i];
+	 always_comb
+	   {carry_out[i],sum_out[1]} = in0[i] + in1[i] + in2[i];
       end
    endgenerate
    
