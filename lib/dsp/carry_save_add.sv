@@ -32,8 +32,9 @@ module carry_save_add
    genvar		     i;
    generate
       for (i=0; i < WIDTH; i++) begin
-	 always_comb
-	   {carry_out[i],sum_out[1]} = in0[i] + in1[i] + in2[i];
+	 always_comb begin
+	    {carry_out[i],sum_out[i]} = in0[i] + in1[i] + in2[i];
+	 end
       end
    endgenerate
    
