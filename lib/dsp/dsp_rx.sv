@@ -19,7 +19,8 @@ module dsp_rx
     parameter RX_TIME_FIFO_SIZE = 4,  // Default from axis_stream_to_pkt_wrapper
     parameter RX_SAMPLE_FIFO_SIZE = 12,  // Default from axis_stream_to_pkt_wrapper
     parameter RX_PACKET_FIFO_SIZE = 9,  // Default from axis_stream_to_pkt_wrapper
-    parameter IQ_WIDTH = 16  // Default from axis_stream_to_pkt_wrapper
+    parameter IQ_WIDTH = 16,  // Default from axis_stream_to_pkt_wrapper
+    parameter TIME_PER_PKT_WIDTH=16  // Default from axis_stream_to_pkt_wrapper
     )
    (
     input logic        clk,
@@ -34,7 +35,7 @@ module dsp_rx
     // DRaT Flow ID for this flow (union of src + dst)
     input logic [31:0] csr_rx_flow_id,
     // Time increment per packet of size packet_size
-    input logic [15:0] csr_rx_time_per_pkt,
+    input logic [TIME_PER_PKT_WIDTH-1:0] csr_rx_time_per_pkt,
     // Number of samples in a burst. Write to zero for infinite burst.
     input logic [47:0] csr_rx_burst_size,
     // Assert this signal for a single cycle to trigger an async return to idle.
@@ -66,7 +67,8 @@ module dsp_rx
        .TIME_FIFO_SIZE(RX_TIME_FIFO_SIZE),
        .SAMPLE_FIFO_SIZE(RX_SAMPLE_FIFO_SIZE),
        .PACKET_FIFO_SIZE(RX_PACKET_FIFO_SIZE),
-       .IQ_WIDTH(IQ_WIDTH)
+       .IQ_WIDTH(IQ_WIDTH),
+       .TIME_PER_PKT_WIDTH(TIME_PER_PKT_WIDTH)
        )
    axis_stream_to_pkt_backpressured_i0
      (

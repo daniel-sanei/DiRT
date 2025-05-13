@@ -43,7 +43,9 @@ module axis_stream_to_pkt_backpressured
     // Packet FIFO has 2**PACKET_FIFO_SIZE entries
     parameter PACKET_FIFO_SIZE=8,
     // Width of IQ samples from Datapath. If <16b then samples MSB justified into packets.
-    parameter IQ_WIDTH=16
+    parameter IQ_WIDTH=16,
+    // Width of time_per_pkt CSR field
+    parameter TIME_PER_PKT_WIDTH=16
     )
 
    (
@@ -54,7 +56,7 @@ module axis_stream_to_pkt_backpressured
     input logic [63:0] start_time, // Write this register with start time to annotate into bursts first packet.
     input logic [13:0] packet_size, // Packet size expressed in number of samples
     input logic [31:0] flow_id, // DRaT Flow ID for this flow (union of src + dst)
-    input logic [15:0] time_per_pkt, // Time increment per packet of size packet_size
+    input logic [TIME_PER_PKT_WIDTH-1:0] time_per_pkt, // Time increment per packet of size packet_size
     input logic [47:0] burst_size, // Number of samples in a burst. Write to zero for infinite burst.
     input logic        abort, // Assert this signal for a single cycle to trigger an async return to idle.
     // Status Flags
