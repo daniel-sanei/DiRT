@@ -10,6 +10,7 @@
 #-----------------------------------------------------------------------------
 
 DIRT_DSP_SRCS = $(abspath $(addprefix $(DIRT_DIR)/lib/dsp/, \
+carry_save_add.sv \
 dsp_1_channel.sv \
 dsp_rx.sv \
 dsp_tx.sv \
