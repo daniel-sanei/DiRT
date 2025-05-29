@@ -8,7 +8,7 @@
 //
 // Description:
 // Carry Save Adder (3->2 compressor).
-// 
+//
 //
 // License: CERN-OHL-P (See LICENSE.md)
 //
@@ -18,12 +18,12 @@
 
 module carry_save_add
   #(
-    parameter WIDTH = 16  
+    parameter WIDTH = 16
     )
    (
     input wire [WIDTH-1:0]  in0,
     input wire [WIDTH-1:0]  in1,
-    input wire [WIDTH-1:0]  in2,    
+    input wire [WIDTH-1:0]  in2,
     //
     output logic [WIDTH-1:0] sum_out, // bit weight [WIDTH-1:0]
     output logic [WIDTH-1:0] carry_out // bit weight [WIDTH:1]
@@ -37,6 +37,6 @@ module carry_save_add
 	 end
       end
    endgenerate
-   
-   
+
+
 endmodule // carry_save_add
