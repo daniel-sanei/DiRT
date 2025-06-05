@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// File:   dirt_io_buf.sv
+// File:   dirt_ibufds.sv
 //
 // Author:  Ian Buckley, Ion Concepts LLC.
 //
@@ -7,7 +7,7 @@
 // * Width of datapath.
 //
 // Description:
-// Instantiates bus of Xilinx IO_BUF
+// Instantiates bus of Xilinx IBUFDS
 //
 //
 // License: CERN-OHL-P (See LICENSE.md)
@@ -16,29 +16,33 @@
 `default_nettype none
 `timescale 1ns/1ps
 
-module dirt_io_buf
+module dirt_ibufds
   #(
-    parameter WIDTH = 1
+    parameter WIDTH = 1,
+    parameter DIFF_TERM = "TRUE",
+    parameter IBUF_LOW_PWR = "TRUE"
     )
    (
     input wire [WIDTH-1:0]  I,
-    input wire [WIDTH-1:0]  T, // Tristates output buffer when asserted HIGH.
-    inout wire [WIDTH-1:0]  IO,
-    output wire [WIDTH-1:0] O 
+    input wire [WIDTH-1:0]  IB,
+    output wire [WIDTH-1:0] O
     );
 
    genvar		     i;
    generate
       for (i=0; i < WIDTH; i++) begin
-	 IOBUF dirt_io_buf_i
+	 IBUFDS # (
+             .DIFF_TERM (DIFF_TERM),
+             .IBUF_LOW_PWR (IBUF_LOW_PWR)
+             )
+	     dirt_ibufds_i
 	     (
 	      .I(I[i]),
-	      .IO(IO[i]),
-	      .O(O[i]),
-	      .T(T[i])
+	      .IB(IB[i]),
+	      .O(O[i])
 	      );
       end
    endgenerate
 
 
-endmodule // dirt_io_buf
+endmodule // dirt_ibufds
