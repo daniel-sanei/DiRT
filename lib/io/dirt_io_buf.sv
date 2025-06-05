@@ -37,7 +37,6 @@ module dirt_io_buf
 	      .O(O[i]),
 	      .T(T[i])
 	      );
-	 end
       end
    endgenerate
 
