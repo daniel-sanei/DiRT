@@ -10,5 +10,7 @@
 #-----------------------------------------------------------------------------
 
 DIRT_IO_SRCS = $(abspath $(addprefix $(DIRT_DIR)/lib/io/, \
-dirt_io_buf.sv \
+dirt_iobuf.sv \
+dirt_ibufds.sv \
+dirt_obufds.sv \
 ))
