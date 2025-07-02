@@ -4,7 +4,7 @@
 regfile framer {
   desc = "Framer Registers";
   reg {
-    name="framer_mac0";
+    name="mac0";
     desc="MAC addresses";
     field {
       sw=rw;
@@ -12,10 +12,10 @@ regfile framer {
       name="";
       desc="";
     } mac_dst_lower [31:0] = 0x0;
-  } framer_mac0;
+  } mac0;
 
   reg {
-    name="framer_mac1";
+    name="mac1";
     desc="MAC addresses";
     field {
       sw=rw;
@@ -23,10 +23,10 @@ regfile framer {
       name="";
       desc="";
     } mac_src_lower [31:0] = 0x0;
-  } framer_mac1;
+  } mac1;
 
   reg {
-    name="framer_mac2";
+    name="mac2";
     desc="MAC addresses";
     field {
       sw=rw;
@@ -40,10 +40,10 @@ regfile framer {
       name="";
       desc="";
     } mac_src_upper [31:16] = 0x0;
-  } framer_mac2;
+  } mac2;
 
   reg {
-    name="framer_dst_ip";
+    name="dst_ip";
     desc="Dst IP address";
     field {
       sw=rw;
@@ -51,10 +51,10 @@ regfile framer {
       name="";
       desc="";
     } ip [31:0] = 0x0;
-  } framer_dst_ip;
+  } dst_ip;
 
   reg {
-    name="framer_src_ip";
+    name="src_ip";
     desc="Src IP address";
     field {
       sw=rw;
@@ -62,10 +62,10 @@ regfile framer {
       name="";
       desc="";
     } ip [31:0] = 0x0;
-  } framer_src_ip;
+  } src_ip;
 
   reg {
-    name="framer_udp0";
+    name="udp0";
     desc="UDP src port to forward from.";
     field {
       sw=rw;
@@ -73,10 +73,10 @@ regfile framer {
       name="";
       desc="Matches all FLowID's";
     } udp_src [15:0] = 0x0;
-  } framer_udp0;
+  } udp0;
 
   reg {
-    name="framer_udp1";
+    name="udp1";
     desc="UDP dst ports to forward to.";
     field {
       sw=rw;
@@ -90,10 +90,10 @@ regfile framer {
       name="";
       desc="Matches FlowID[2:0] == 3'b001";
     } udp_dst1 [31:16] = 0x0;
-  } framer_udp1;
+  } udp1;
 
   reg {
-    name="framer_udp2";
+    name="udp2";
     desc="UDP dst ports to forward to.";
     field {
       sw=rw;
@@ -107,10 +107,10 @@ regfile framer {
       name="";
       desc="Matches FlowID[2:0] == 3'b011";
     } udp_dst3 [31:16] = 0x0;
-  } framer_udp2;
+  } udp2;
 
   reg {
-    name="framer_udp3";
+    name="udp3";
     desc="UDP dst ports to forward to.";
     field {
       sw=rw;
@@ -124,10 +124,10 @@ regfile framer {
       name="";
       desc="Matches FlowID[2:0] == 3'b101";
     } udp_dst5 [31:16] = 0x0;
-  } framer_udp3;
+  } udp3;
 
   reg {
-    name="framer_udp4";
+    name="udp4";
     desc="UDP dst ports to forward to.";
     field {
       sw=rw;
@@ -141,10 +141,10 @@ regfile framer {
       name="";
       desc="Matches FlowID[2:0] == 3'b111";
     } udp_dst7 [31:16] = 0x0;
-  } framer_udp4;
+  } udp4;
 
   reg {
-    name="framer_udp5";
+    name="udp5";
     desc="UDP dst ports to forward to.";
     field {
       sw=rw;
@@ -152,11 +152,11 @@ regfile framer {
       name="";
       desc="Matches FlowID[8] == 1'b1";
     } udp_dst8 [31:22] = 0x0;
-  } framer_udp5;
+  } udp5;
   
 
   reg {
-    name="framer_control";
+    name="control";
     desc="Control operation of framer";
     field {
       sw=rw;
@@ -164,10 +164,10 @@ regfile framer {
       name="";
       desc="";
     } enable [0:0] = 0x0;
-  } framer_control;
+  } control;
 
   reg {
-    name="framer_status";
+    name="status";
     desc="Status of framer";
     field {
       sw=r;
@@ -175,5 +175,5 @@ regfile framer {
       name="";
       desc="";
     } idle [0:0]  = 0x0;
-  } framer_status;
+  } status;
 };

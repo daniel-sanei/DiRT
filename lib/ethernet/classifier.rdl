@@ -4,7 +4,7 @@
 regfile classifier {
   desc = "Classifier Registers";
   reg {
-    name="classifier_mac0";
+    name="mac0";
     desc="Local MAC address, lower 32 bits";
     field {
       sw=rw;
@@ -12,10 +12,10 @@ regfile classifier {
       name="";
       desc="";
     } mac_lower [31:0] = 0x0;
-  } classifier_mac0;
+  } mac0;
 
   reg {
-    name="classifier_mac1";
+    name="mac1";
     desc="Local MAC address, upper 16 bits";
     field {
       sw=rw;
@@ -23,10 +23,10 @@ regfile classifier {
       name="";
       desc="";
     } mac_upper [15:0] = 0x0;
-  } classifier_mac1;
+  } mac1;
 
   reg {
-    name="classifier_ip";
+    name="ip";
     desc="Local IP address";
     field {
       sw=rw;
@@ -34,10 +34,10 @@ regfile classifier {
       name="";
       desc="";
     } ip [31:0] = 0x0;
-  } classifier_ip;
+  } ip;
 
   reg {
-    name="classifier_udp";
+    name="udp";
     desc="UDP ports to forward to PL";
     field {
       sw=rw;
@@ -51,10 +51,10 @@ regfile classifier {
       name="";
       desc="";
     } udp_port1 [31:16] = 0x0;
-  } classifier_udp;
+  } udp;
 
   reg {
-    name="classifier_control";
+    name="control";
     desc="Control operation of classifer0";
     field {
       sw=rw;
@@ -66,13 +66,13 @@ regfile classifier {
       sw=rw;
       hw=r;
       name="";
-      desc="Match UDP port1 supplied in classifier_udp";
+      desc="Match UDP port1 supplied in udp";
       } enable_udp1 [3:3] = 0x0;
     field {
       sw=rw;
       hw=r;
       name="";
-      desc="Match UDP port0 supplied in classifier_udp";
+      desc="Match UDP port0 supplied in udp";
       } enable_udp0 [2:2] = 0x0;
     field {
       sw=rw;
@@ -86,5 +86,5 @@ regfile classifier {
       name="";
       desc="";
       } enable [0:0] = 0x0;
-  } classifier_control;
+  } control;
 };
