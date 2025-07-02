@@ -12,5 +12,6 @@
 DIRT_ETHERNET_SRCS = $(abspath $(addprefix $(DIRT_DIR)/lib/ethernet/, \
 drat2eth_framer.sv \
 eth_classifier_2_egress.sv \
+eth_router_3_port.sv \
 ethernet.sv \
 ))

@@ -37,6 +37,7 @@ axis_null_sink.sv \
 axis_null_src.sv \
 axis_packet_fifo.sv \
 axis_packet_fifo_wrapper.sv \
+axi_packet_gate_wrapper.sv \
 axis_pkt_to_mm.sv \
 axis_pkt_to_stream.sv \
 axis_siggen_pkg.sv \
