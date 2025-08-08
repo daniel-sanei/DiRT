@@ -1,0 +1,90 @@
+//------------------------------------------
+// eth_classifier_2_egress CSR regfile
+//------------------------------------------
+regfile classifier {
+  desc = "Classifier Registers";
+  reg {
+    name="mac0";
+    desc="Local MAC address, lower 32 bits";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } mac_lower [31:0] = 0x0;
+  } mac0;
+
+  reg {
+    name="mac1";
+    desc="Local MAC address, upper 16 bits";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } mac_upper [15:0] = 0x0;
+  } mac1;
+
+  reg {
+    name="ip";
+    desc="Local IP address";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } ip [31:0] = 0x0;
+  } ip;
+
+  reg {
+    name="udp";
+    desc="UDP ports to forward to PL";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } udp_port0 [15:0] = 0x0;
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } udp_port1 [31:16] = 0x0;
+  } udp;
+
+  reg {
+    name="control";
+    desc="Control operation of classifer0";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="Match packet for onward L3 route";
+      } enable_l3_route [4:4] = 0x0;
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="Match UDP port1 supplied in udp";
+      } enable_udp1 [3:3] = 0x0;
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="Match UDP port0 supplied in udp";
+      } enable_udp0 [2:2] = 0x0;
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+      } expose_drat [1:1] = 0x0;
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+      } enable [0:0] = 0x0;
+  } control;
+};
