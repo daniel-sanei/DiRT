@@ -1,0 +1,79 @@
+
+regfile dsp_rx {
+  desc = "RX DSP Registers";
+
+ 
+  //---------------------------------------
+  // axi_stream_to_pkt_backpressured
+  //---------------------------------------
+  reg {
+    name="rx_control";
+    desc="Controls operation of axi_stream_to_pkt_backpressured";
+    field {
+      sw=rw;
+      hw = r;
+      } far_loopback [31:31] = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } rx_abort [1:1] = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } stream_to_pkt_enable [0:0] = 0;
+  } rx_control;
+
+  reg {
+    name="rx_status";
+    desc="Status of axi_stream_to_pkt_backpressured";
+    field {
+      sw=r;
+      hw=w;
+    } idle;
+  } rx_status;
+
+  reg {
+    name="rx_packet_size";
+    desc="Number of samples to frame in a single packet";
+    field {
+      sw=rw;
+      hw = r;
+    } samples [13:0] = 0x0;
+  } rx_packet_size;
+
+  reg {
+    name="rx_flow_id";
+    desc="Sets FlowID for RX Packets";
+    field {
+      sw=rw;
+      hw = r;
+    } flow_id [31:0] = 0x0;
+  } rx_flow_id;
+
+  reg {
+    name="rx_time_per_pkt";
+    desc="Time increment per sucessive packet";
+    field {
+      sw=rw;
+      hw = r;
+    } time_per_pkt [15:0] = 0x0;
+  } rx_time_per_pkt;
+
+  reg {
+    name="rx_burst_size_upper";
+    desc="Upper 16bits of Length of burst (Zero for infinite)";
+    field {
+      sw=rw;
+      hw = r;
+    } size [15:0] = 0x0;
+  } rx_burst_size_upper;
+
+  reg {
+    name="rx_burst_size_lower";
+    desc="Lower 32bits of Length of burst (Zero for infinite)";
+    field {
+      sw=rw;
+      hw = r;
+    } size [31:0] = 0x0;
+  } rx_burst_size_lower;
+};

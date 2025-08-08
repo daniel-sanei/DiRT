@@ -1,0 +1,54 @@
+
+regfile dsp_tx {
+  desc = "TX DSP Registers";
+
+  //---------------------------------------
+  // axi_pkt_to_stream
+  //---------------------------------------
+  reg {
+    name="tx_control";
+    desc="Controls operation of axi_pkt_to_stream";
+    field {
+      sw=rw;
+      hw = r;
+      } consumption_period [15:8] = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } tx_error_policy_next_packet [4:4] = 1;
+    field {
+      sw=rw;
+      hw = r;
+    } deframer_enable[3:3]  = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } status_enable [2:2] = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } consumption_enable [1:1]  = 0;
+    field {
+      sw=rw;
+      hw = r;
+    } tx_control_enable [0:0] = 0;
+  } tx_control;
+
+  reg {
+    name="tx_status_flow_id";
+    desc="Sets FlowID for Status Packets";
+    field {
+      sw=rw;
+      hw = r;
+    } flow_id [31:0] = 0x0;
+  } tx_status_flow_id;
+
+  reg {
+    name="tx_consumption_flow_id";
+    desc="Sets FlowID for Consumption Packets";
+    field {
+      sw=rw;
+      hw = r;
+    } flow_id [31:0] = 0x0;
+  } tx_consumption_flow_id;
+};
