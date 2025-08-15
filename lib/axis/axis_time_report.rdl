@@ -24,7 +24,7 @@ regfile time_report {
 
   reg {
     name="control";
-    desc="FlowID for time report packets";
+    desc="Control Register";
     field {
       sw=rw;
       hw = r;
