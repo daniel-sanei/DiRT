@@ -1,0 +1,33 @@
+  //-------------------------------------------------------------------------------
+  // Time Report
+  //-------------------------------------------------------------------------------
+regfile time_report {
+  desc = "Time Report Registers";
+
+  reg {
+    name="period";
+    desc="Period between time report packets in 256 DSP clock ticks";
+    field {
+      sw=rw;
+      hw = r;
+    } period [15:0] = 0x0;
+  } period;
+
+  reg {
+    name="flowid";
+    desc="FlowID for time report packets";
+    field {
+      sw=rw;
+      hw = r;
+    } flowid [31:0] = 0x0;
+  } flowid;
+
+  reg {
+    name="control";
+    desc="Control Register";
+    field {
+      sw=rw;
+      hw = r;
+    } enable [0:0] = 0x0;
+  } control;
+};
