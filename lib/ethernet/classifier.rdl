@@ -34,7 +34,7 @@ regfile classifier {
       name="";
       desc="";
     } ip [31:0] = 0x0;
-  } ip;
+  } ip0;
 
   reg {
     name="udp";
@@ -51,7 +51,7 @@ regfile classifier {
       name="";
       desc="";
     } udp_port1 [31:16] = 0x0;
-  } udp;
+  } udp0;
 
   reg {
     name="control";
