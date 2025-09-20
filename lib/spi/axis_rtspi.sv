@@ -1,0 +1,543 @@
+//-----------------------------------------------------------------------------
+// File:    axis_rtspi.sv
+//
+// Author:  Ian Buckley, Ion Concepts LLC
+//
+// Parameterizable:
+//
+// Description:
+// SPI Master interface with host side AXIS DRaT packet interfaces rather than
+// a classic memory mapped bus (AXI4lite style). Each SPI transaction can be async
+// (Happens upon packet ingress), or Synchronous (Happens when system time counter
+// matches time metadata in packet). Pending synchronous transactions will cause
+// organic AIXS backpressure upstream and form a blocking queue.
+//
+//-----------------------------------------------------------------------------
+`default_nettype none
+/*
+ | clk         | 1      | I             | logic clock                                              |
+| ----------- | ------ | ------------- | -------------------------------------------------------- |
+| rst         | 1      | I             | logic reset                                              |
+| in_axis     | 64     | axis_t.slave  | command packet bus                                       |
+| out_axis    | 64b    | axis_t.master | response packet bus                                      |
+| system_time | [63:0] | I             | System time in ticks                                     |
+| sclk        | 1      | O             | SPI Clock                                                |
+| ss_b        | 1      | O             | Slave Select (active low)                                |
+| mosi        | 1      | O             | Master Out Slave In                                      |
+| miso        | 1      | I             | Master In, Slave out                                     |
+| sclk_div    | 8      | I             | CSR that sets integer divde for logic clock to SPI clock |
+| enable      |        |               |                                                          |
+ */
+
+module axis_rtspi
+  (
+   input wire	     clk,
+   input wire	     rst,
+   // CSR (Control/Status Register) interface
+   input wire	     csr_enable,
+   input wire [7:0]  csr_sclk_div,
+   // input logic [31:0] csr_flow_id_cmd, // Should we filter on FlowID?
+   input wire [31:0] csr_flow_id_response,
+   // System time
+   input wire [63:0] system_time,
+   // SPI electrical interface
+   spi_t.master spi,
+   // Command Bus
+   axis_t.master in_axis,
+   // Response Bus
+   axis_t.master out_axis
+   );
+
+   import drat_protocol::*;
+   import axis_rtspi_pkg::*;
+
+
+   // States
+   enum		     {
+                      S_IDLE,
+                      S_PARSE,
+                      S_TIMECHECK,
+		      S_TIMESKIP,
+		      S_RW,
+		      S_A14,
+		      S_A13,
+		      S_A12,
+		      S_A11,
+		      S_A10,
+		      S_A9,
+		      S_A8,
+		      S_A7,
+		      S_A6,
+		      S_A5,
+		      S_A4,
+		      S_A3,
+		      S_A2,
+		      S_A1,
+		      S_A0,
+		      S_D7,
+		      S_D6,
+		      S_D5,
+		      S_D4,
+		      S_D3,
+		      S_D2,
+		      S_D1,
+		      S_D0,
+		      S_RESP_HEADER,
+		      S_RESP_TIME,
+		      S_RESP_PAYLOAD,
+		      S_DISCARD
+                      } state;
+
+
+
+   //-----------------------------------------------------------
+   // Divide logic clock synchronously to form SCLK.
+   // Mask output to I/O when not in an active transaction.
+   //-----------------------------------------------------------
+   logic [7:0]	     count;
+   logic	     sclk_internal, sclk_internal_pre;
+   logic	     sclk_rising, sclk_falling;
+   logic [7:0]	     expected_seq_id;
+   logic [7:0]	     received_seq_id;
+   logic [7:0]	     response_seq_id;
+   logic [15:0]	     error_codes;
+   logic [7:0]	     data_read;
+   logic	     active;
+
+
+   always_ff @(posedge clk)
+     begin
+	if (~csr_enable) begin
+	   count <= 0;
+	   sclk_internal_pre <= 0;
+	   sclk_internal <= 0;
+	end else if (count < csr_sclk_div) begin
+	   count <= count + 1;
+	end else begin
+	   count <= 0;
+	   sclk_internal_pre <= ~sclk_internal_pre;
+	   sclk_internal <= sclk_internal_pre;
+	end
+	// Force SCLK high when idle.
+	// Having a register here allows IOB placement
+	// and allows state machine logic to form external signal edges well
+	// aligned with the external falling clock edge.
+	spi.sclk <= sclk_internal | ~active;
+     end
+
+   // Simplfy state machine readability
+   always_comb begin
+      // The clock rising/falling flags lead the externally visible SCLK by one system clock period
+      sclk_rising = ~sclk_internal && sclk_internal_pre;
+      sclk_falling = sclk_internal && ~sclk_internal_pre;
+   end
+
+
+   always_ff @(posedge clk) begin
+      // Simplfy state machine readability
+      automatic drat_protocol::pkt_header_t drat_header = drat_protocol::populate_header_no_timestamp(in_axis.tdata);
+      automatic axis_rtspi_pkg::rtspi_command_t rtspi_command = in_axis.tdata[55:32];
+      if (rst) begin
+         state <= S_IDLE;
+      end else begin
+         case (state)
+	   // Leave IDLE state when csr_enable asserted.
+	   // Passing through the S_IDLE state implies a new RTSPI burst has started so
+	   // expected seq_id is reset to 0x0.
+	   S_IDLE: begin
+	      expected_seq_id <= 0;
+	      response_seq_id <= 0;
+	      error_codes <= 0;
+	      active <= 0;
+	      if (~csr_enable) begin
+		 in_axis.tready <= 0;
+		 state <= S_IDLE;
+	      end else begin
+		 in_axis.tready <= 1;
+		 state <= S_PARSE;
+	      end
+	   end
+	   // In a correctly running system, only the first beat of a DRaT packet is presented in this state.
+	   S_PARSE: begin
+	      active <= 0; // Should already be inactive but bullet proofing this.
+	      received_seq_id <= drat_header.seq_id; // Need this later to populate response packet
+	      if (in_axis.tvalid && drat_header.packet_type == SPI_COMMAND) begin
+		 // 1st beat of expected synchronous command packet
+		 state <= S_TIMECHECK;
+		 in_axis.tready <= 1;
+		 if (drat_header.seq_id != expected_seq_id) begin
+		    // Seqid not what was expected, packet loss??? Flag error code and reset expected seqid
+		    error_codes <= error_codes | SPI_SEQ_ERROR;
+		    expected_seq_id <= drat_header.seq_id + 1;
+		 end
+	      end else if (in_axis.tvalid && drat_header.packet_type == SPI_COMMAND_ASYNC) begin
+		 // 1st beat of expected asynchronous command packet
+		 state <= S_TIMESKIP;
+		 in_axis.tready <= 1;
+		 if (drat_header.seq_id != expected_seq_id) begin
+		    // Seqid not what was expected, packet loss??? Flag error code and reset expected seqid
+		    error_codes <= error_codes | SPI_SEQ_ERROR;
+		    expected_seq_id <= drat_header.seq_id + 1;
+		 end
+	      end else if (in_axis.tvalid && in_axis.tlast) begin
+		 // Unexpected packet type, packet fragement, packet missalignment etc with TLAST set (assume it really is last beat of packet). Discard.
+		 if (csr_enable) begin
+		    state <= S_PARSE;
+		    in_axis.tready <= 1;
+		 end else begin
+		    state <= S_IDLE;
+		    in_axis.tready <= 0;
+		 end
+		 error_codes <= 0;
+	      end else if (in_axis.tvalid) begin
+		 // Unexpected packet type, packet fragement, packet missalignment etc. Discard.
+		 state <= S_DISCARD;
+		 in_axis.tready <= 1;
+	      end
+	   end
+	   // For synchronous command packets we block here until the timestamp matches system time.
+	   // If the timestamp is later than current system time then we will return SPI_LATE as the response status.
+	   // Current implementation will still execute the SPI transaction if late.
+	   S_TIMECHECK: begin
+	      if (in_axis.tvalid && in_axis.tdata == system_time) begin
+		 // Matched execution time
+		 state <= S_RW;
+		 in_axis.tready <= 1;
+	      end else if (in_axis.tvalid &&  in_axis.tdata > system_time) begin
+		 // Execution time already expired, we are late!
+		 error_codes <= error_codes | SPI_LATE;
+		 state <= S_RW;
+		 in_axis.tready <= 1;
+	      end else begin
+		 // NOTE: No provision to timeout...we could be waiting here a loooong time at 64bits
+		 in_axis.tready <= 0;
+	      end
+	   end // case: S_TIMECHECK
+	   // Async command packet, just need to read and discard the empty timestamp field.
+	   S_TIMESKIP: begin
+	      if (in_axis.tvalid) begin
+		 state <= S_RW;
+		 in_axis.tready <= 1;
+	      end
+	   end
+	   // Start reading command bits from DRaT payload.
+	   // Go active so that falling edge is presented
+	   S_RW: begin
+	      in_axis.tready <= 0; // Want this DRaT payload beat to sit here so we can can pull bits from it.
+	      if (in_axis.tvalid && sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_RW;
+		 active = 1;
+		 state <= S_A14;
+	      end
+	   end
+	   // Address bit14
+	   S_A14: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A14;
+		 active = 1;
+		 state <= S_A13;
+	      end
+	   end
+	   // Address bit13
+	   S_A13: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A13;
+		 active = 1;
+		 state <= S_A12;
+	      end
+	   end
+	   // Address bit12
+	   S_A12: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A12;
+		 active = 1;
+		 state <= S_A11;
+	      end
+	   end
+	   // Address bit11
+	   S_A11: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A11;
+		 active = 1;
+		 state <= S_A10;
+	      end
+	   end
+	   // Address bit10
+	   S_A10: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A10;
+		 active = 1;
+		 state <= S_A9;
+	      end
+	   end
+	   // Address bit9
+	   S_A9: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A9;
+		 active = 1;
+		 state <= S_A8;
+	      end
+	   end
+	   // Address bit8
+	   S_A8: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A8;
+		 active = 1;
+		 state <= S_A7;
+	      end
+	   end
+	   // Address bit7
+	   S_A7: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A7;
+		 active = 1;
+		 state <= S_A6;
+	      end
+	   end
+	   // Address bit6
+	   S_A6: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A6;
+		 active = 1;
+		 state <= S_A5;
+	      end
+	   end
+	   // Address bit5
+	   S_A5: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A5;
+		 active = 1;
+		 state <= S_A4;
+	      end
+	   end
+	   // Address bit4
+	   S_A4: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A4;
+		 active = 1;
+		 state <= S_A3;
+	      end
+	   end
+	   // Address bit3
+	   S_A3: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A3;
+		 active = 1;
+		 state <= S_A2;
+	      end
+	   end
+	   // Address bit2
+	   S_A2: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A2;
+		 active = 1;
+		 state <= S_A1;
+	      end
+	   end
+	   // Address bit1
+	   S_A1: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A1;
+		 active = 1;
+		 state <= S_A0;
+	      end
+	   end
+	   // Address bit0
+	   S_A0: begin
+	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 spi.mosi <= rtspi_command.SPI_A0;
+		 active = 1;
+		 state <= S_D7;
+	      end
+	   end
+	   // Data bit 7 Read or Write
+	   S_D7:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[7] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D7;
+		 end
+		 state <= S_D6;
+	      end
+	   end
+	   // Data bit 6 Read or Write
+	   S_D6:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[6] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D6;
+		 end
+		 state <= S_D5;
+	      end
+	   end
+	   // Data bit 5 Read or Write
+	   S_D5:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[6] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D5;
+		 end
+		 state <= S_D4;
+	      end
+	   end
+	   // Data bit 4 Read or Write
+	   S_D4:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[6] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D4;
+		 end
+		 state <= S_D3;
+	      end
+	   end
+	   // Data bit 3 Read or Write
+	   S_D3:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[6] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D3;
+		 end
+		 state <= S_D2;
+	      end
+	   end // case: S_D3
+	   // Data bit 2 Read or Write
+	   S_D2:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[2] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D2;
+		 end
+		 state <= S_D1;
+	      end
+	   end
+	   // Data bit 1 Read or Write
+	   S_D1:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[1] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D1;
+		 end
+		 state <= S_D0;
+	      end
+	   end
+	   // Data bit 0 Read or Write
+	   S_D0:begin
+  	      if (sclk_falling) begin
+		 spi.ss_b <= 0;
+		 active = 1;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    data_read[0] <= spi.miso;
+		 end else begin
+		    spi.mosi <= rtspi_command.SPI_D0;
+		 end
+		 out_axis.tdata <= {SPI_RESPONSE,response_seq_id,16'd24/*SIZE*/,csr_flow_id_response};
+		 out_axis.tvalid <= 1;
+		 out_axis.tlast <= 1'b0;
+		 if (out_axis.tready) begin
+		    state <= S_RESP_TIME;
+		    response_seq_id <= response_seq_id + 1;
+		 end else begin
+		    state <= S_RESP_HEADER;
+		 end
+	      end
+	   end // case: S_D0
+	   // To avoid having a seperate state machine that emits a DRaT resonse and is loosly couple
+	   // with the state machine running the SPI master, with the potential veirification issues
+	   // and corner caes that could cause, we directly emit the response packet in the same state machine.
+	   // (We already emit the first beat as the last state completes to maximize performance)
+	   S_RESP_HEADER: begin
+	      if (out_axis.tready) begin
+		 // Header passed downstream, move to time
+		 state <= S_RESP_TIME;
+	      end else begin
+		 state <= S_RESP_HEADER;
+	      end
+	   end
+	   S_RESP_TIME: begin
+	      out_axis.tdata <= system_time;
+	      out_axis.tvalid <= 1;
+	      out_axis.tlast <= 1'b0;
+	      if (out_axis.tready) begin
+		 state <= S_RESP_PAYLOAD;
+	      end else begin
+		 state <= S_RESP_TIME;
+	      end
+	   end
+	   S_RESP_PAYLOAD: begin
+	      out_axis.tdata <= {24'd0,data_read[7:0],error_codes[15:0],expected_seq_id[7:0],received_seq_id[7:0]} ;
+	      out_axis.tvalid <= 1;
+	      out_axis.tlast <= 1'b1;
+	      if (out_axis.tready) begin
+		 if (csr_enable) begin // Are we still enabled?
+		    state <= S_PARSE;
+		    in_axis.tready <= 1; // Ready to recieve next SPI_COMMAND
+		 end else begin
+		    state <= S_IDLE;
+		 end
+		 if (error_codes & SPI_SEQ_ERROR) begin
+		    expected_seq_id <= received_seq_id + 1; // On seq_id error reset expected seq_id for next command
+		 end
+	      end else begin
+		 state <= S_RESP_PAYLOAD;
+	      end
+	   end
+
+
+	   // Discard beats until we see TLAST asserted indicating we regained packet alignment
+	   // and flushed whatever we just rejected.
+	   S_DISCARD: begin
+	      error_codes <= 0;
+	      in_axis.tready <= 1;
+	      if (in_axis.tvalid && in_axis.tlast) begin
+		 // Discard complete
+		 if (csr_enable) begin
+		    state <= S_PARSE;
+		 end else begin
+		    state <= S_IDLE;
+		    in_axis.tready <= 0;
+		 end
+	      end
+	   end // case: S_DISCARD
+	 endcase // case (state)
+      end // else: !if(rst)
+   end
+endmodule // axis_rtspi
+
+`default_nettype wire
