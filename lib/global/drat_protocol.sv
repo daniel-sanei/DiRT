@@ -634,7 +634,7 @@ class DRaTPacket;
       logic [63:0] tdata;
       logic        tlast;
 
-      axis_bus.pull_beat(tdata,tlast);
+      axis_bus.pull_beat(tdata,tlast); 
       `FAIL_UNLESS_EQUAL(tlast,0);
       this.set_raw_header(tdata);
       axis_bus.pull_beat(tdata,tlast);

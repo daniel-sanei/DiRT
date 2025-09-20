@@ -107,16 +107,23 @@ module axis_rtspi
 
    always_ff @(posedge clk)
      begin
-	if (~csr_enable) begin
+	if (~csr_enable | rst) begin
 	   count <= 0;
 	   sclk_internal_pre <= 0;
 	   sclk_internal <= 0;
+	   spi.sclk <= 1;
+	   sclk_rising <= 0;
+	   sclk_falling <= 0;
 	end else if (count < csr_sclk_div) begin
 	   count <= count + 1;
+	   sclk_rising <= 0;
+	   sclk_falling <= 0;
 	end else begin
 	   count <= 0;
 	   sclk_internal_pre <= ~sclk_internal_pre;
 	   sclk_internal <= sclk_internal_pre;
+	   sclk_rising <= ~sclk_internal && sclk_internal_pre;
+	   sclk_falling <= sclk_internal && ~sclk_internal_pre;
 	end
 	// Force SCLK high when idle.
 	// Having a register here allows IOB placement
@@ -125,20 +132,14 @@ module axis_rtspi
 	spi.sclk <= sclk_internal | ~active;
      end
 
-   // Simplfy state machine readability
-   always_comb begin
-      // The clock rising/falling flags lead the externally visible SCLK by one system clock period
-      sclk_rising = ~sclk_internal && sclk_internal_pre;
-      sclk_falling = sclk_internal && ~sclk_internal_pre;
-   end
-
-
    always_ff @(posedge clk) begin
       // Simplfy state machine readability
       automatic drat_protocol::pkt_header_t drat_header = drat_protocol::populate_header_no_timestamp(in_axis.tdata);
       automatic axis_rtspi_pkg::rtspi_command_t rtspi_command = in_axis.tdata[55:32];
       if (rst) begin
          state <= S_IDLE;
+	 spi.mosi <= 0;
+	 spi.ss_b <= 1;
       end else begin
          case (state)
 	   // Leave IDLE state when csr_enable asserted.
@@ -149,6 +150,12 @@ module axis_rtspi
 	      response_seq_id <= 0;
 	      error_codes <= 0;
 	      active <= 0;
+	      spi.mosi <= 0;
+	      spi.ss_b <= 1;
+	      data_read <= 0;
+	      out_axis.tdata <= 0;	      
+	      out_axis.tvalid <= 0;
+	      out_axis.tlast <= 0;
 	      if (~csr_enable) begin
 		 in_axis.tready <= 0;
 		 state <= S_IDLE;
@@ -161,6 +168,10 @@ module axis_rtspi
 	   S_PARSE: begin
 	      active <= 0; // Should already be inactive but bullet proofing this.
 	      received_seq_id <= drat_header.seq_id; // Need this later to populate response packet
+	      // Drive Response bus to idle state
+	      out_axis.tdata <= 0;
+	      out_axis.tvalid <= 0;
+	      out_axis.tlast <= 0;
 	      if (in_axis.tvalid && drat_header.packet_type == SPI_COMMAND) begin
 		 // 1st beat of expected synchronous command packet
 		 state <= S_TIMECHECK;
@@ -168,7 +179,6 @@ module axis_rtspi
 		 if (drat_header.seq_id != expected_seq_id) begin
 		    // Seqid not what was expected, packet loss??? Flag error code and reset expected seqid
 		    error_codes <= error_codes | SPI_SEQ_ERROR;
-		    expected_seq_id <= drat_header.seq_id + 1;
 		 end
 	      end else if (in_axis.tvalid && drat_header.packet_type == SPI_COMMAND_ASYNC) begin
 		 // 1st beat of expected asynchronous command packet
@@ -176,9 +186,8 @@ module axis_rtspi
 		 in_axis.tready <= 1;
 		 if (drat_header.seq_id != expected_seq_id) begin
 		    // Seqid not what was expected, packet loss??? Flag error code and reset expected seqid
-		    error_codes <= error_codes | SPI_SEQ_ERROR;
-		    expected_seq_id <= drat_header.seq_id + 1;
-		 end
+		    error_codes <= error_codes | SPI_SEQ_ERROR;		    
+		 end 		   
 	      end else if (in_axis.tvalid && in_axis.tlast) begin
 		 // Unexpected packet type, packet fragement, packet missalignment etc with TLAST set (assume it really is last beat of packet). Discard.
 		 if (csr_enable) begin
@@ -201,12 +210,12 @@ module axis_rtspi
 	   S_TIMECHECK: begin
 	      if (in_axis.tvalid && in_axis.tdata == system_time) begin
 		 // Matched execution time
-		 state <= S_RW;
+		 state <= S_TIMESKIP; // Transit through this state to signal tready to timestamp
 		 in_axis.tready <= 1;
 	      end else if (in_axis.tvalid &&  in_axis.tdata > system_time) begin
 		 // Execution time already expired, we are late!
 		 error_codes <= error_codes | SPI_LATE;
-		 state <= S_RW;
+		 state <= S_TIMESKIP;
 		 in_axis.tready <= 1;
 	      end else begin
 		 // NOTE: No provision to timeout...we could be waiting here a loooong time at 64bits
@@ -214,9 +223,12 @@ module axis_rtspi
 	      end
 	   end // case: S_TIMECHECK
 	   // Async command packet, just need to read and discard the empty timestamp field.
+	   // Also used to transit out of S_TIMECHECK to give one cycle with tready asserted.
 	   S_TIMESKIP: begin
 	      if (in_axis.tvalid) begin
 		 state <= S_RW;
+		 in_axis.tready <= 0;
+	      end else begin
 		 in_axis.tready <= 1;
 	      end
 	   end
@@ -503,7 +515,7 @@ module axis_rtspi
 	   S_RESP_PAYLOAD: begin
 	      out_axis.tdata <= {24'd0,data_read[7:0],error_codes[15:0],expected_seq_id[7:0],received_seq_id[7:0]} ;
 	      out_axis.tvalid <= 1;
-	      out_axis.tlast <= 1'b1;
+	      out_axis.tlast <= 1;
 	      if (out_axis.tready) begin
 		 if (csr_enable) begin // Are we still enabled?
 		    state <= S_PARSE;
@@ -513,6 +525,8 @@ module axis_rtspi
 		 end
 		 if (error_codes & SPI_SEQ_ERROR) begin
 		    expected_seq_id <= received_seq_id + 1; // On seq_id error reset expected seq_id for next command
+		 end else begin
+		    expected_seq_id <= expected_seq_id + 1;
 		 end
 	      end else begin
 		 state <= S_RESP_PAYLOAD;

@@ -52,13 +52,11 @@ module axis_rtspi_unit_test;
 
    // Declarations for Stimulus Thread(s)
    DRaTPacket test_packet;
-   int		x;
    logic	enable_stimulus;
    logic	enable_response;
    logic	ready_to_test;
-   logic        discard_enable;
-   logic [63:0] demux_header;
-   logic [1:0]  demux_select;
+
+
 
    // Declarations for Response Thread(s)
    DRaTPacket response_packet;
@@ -67,8 +65,6 @@ module axis_rtspi_unit_test;
    pkt_stream_t axis_stimulus_pre(.clk(clk));
    // Bus between stimulus buffer and demux4
    pkt_stream_t axis_stimulus_post(.clk(clk));
-   // Bus betweeen demux4 and valve
-   pkt_stream_t axis_stimulus_demux(.clk(clk));
    // DUT Input bus
    pkt_stream_t axis_stimulus_gated(.clk(clk));
    // DUT Status Bus
@@ -79,9 +75,29 @@ module axis_rtspi_unit_test;
    // Post Buffer Output bus with Time concatenated.
    pkt_stream_t axis_response_post(.clk(clk));
 
-   // Discard buses on demux4
-   axis_t #(.WIDTH(64)) axis_out1_demux(.clk(clk)), axis_out2_demux(.clk(clk)), axis_out3_demux(.clk(clk));
 
+   //
+   // Generate clk. (Nominally 100MHz, but that is arbitrary.)
+   //
+   initial begin
+      clk <= 1'b1;
+   end
+
+   always begin
+      #5 clk <= ~clk;
+   end
+
+
+   //
+   // Provide time that increments on sample clock domain.
+   //
+
+   always_ff @(posedge clk) begin
+      if (rst)
+	current_time <= 0;
+      else
+	current_time <= current_time + 1 ;
+   end
 
    //----------------------------------
    // This is the UUT that we're
@@ -109,7 +125,6 @@ module axis_rtspi_unit_test;
    //-------------------------------------------------------------------------------
    // Buffer input stimulus packet stream.
    // Pass first to a FIFO to buffer test stimulus.
-   // Then a DEMUX to allow packets to be selectively discarded to simulate packet loss.
    // Then finally a valve so that the buffer can be loaded, then bursted,
    // at full rate, or be modulated to reduce the rate.
    //-------------------------------------------------------------------------------
@@ -124,41 +139,11 @@ module axis_rtspi_unit_test;
                          .out_axis(axis_stimulus_post.axis)
                          );
 
-   axis_demux4_wrapper #(
-                         .WIDTH(64)
-                         )
-   axis_demux4_stimulus_i (
-                           .clk(clk),
-                           .rst(rst),
-                           .header_out(demux_header),
-                           .select_in(demux_select),
-                           .out0_axis(axis_stimulus_demux.axis),
-                           .out1_axis(axis_out1_demux),
-                           .out2_axis(axis_out2_demux),
-                           .out3_axis(axis_out3_demux),
-                           .in_axis(axis_stimulus_post.axis)
-                           );
-
-
-   always_comb begin
-      // Discard all traffic that egresses on these ports
-      axis_out1_demux.tready = 1'b1;
-      axis_out2_demux.tready = 1'b1;
-      axis_out3_demux.tready = 1'b1;
-      // Discard any packet with Seq Num == 2 if enabled
-      // (This simulates packet loss)
-      if ((demux_header[55:48] === 8'd2) && discard_enable) begin
-         demux_select = 2'd1;
-      end else begin
-         demux_select = 2'd0;
-      end
-   end
-
-
+  
    axis_valve axis_valve_stimulus_i (
                                      .clk(clk),
                                      .rst(rst),
-                                     .in_axis(axis_stimulus_demux.axis),
+                                     .in_axis(axis_stimulus_post.axis),
                                      .out_axis(axis_stimulus_gated.axis),
                                      .enable(enable_stimulus)
                                      );
@@ -172,8 +157,8 @@ module axis_rtspi_unit_test;
                                      .clk(clk),
                                      .rst(rst),
                                      .in_axis(axis_response_gated.axis),
-                                     .out_axis(axis_stimulus_pre.axis),
-                                     .enable(enable_stimulus)
+                                     .out_axis(axis_response_pre.axis),
+                                     .enable(enable_response)
                                      );
 
     axis_fifo_wrapper  #(
@@ -259,12 +244,17 @@ module axis_rtspi_unit_test;
          ready_to_test <= 0;
          // Close valve after stimulus buffer
          enable_stimulus <= 1'b0;
+	 enable_response <= 1'b0;
 	 // Setup Packet construction workspace
 	 // Single packet payload beat, timestamp set to 0
          initialize_packet_workspace(beats_to_bytes(1),'d0);
+	 @(posedge clk);
+	 // Simulate CSR interaction that turns on SPI master (With good default CSR state)
+	 csr_enable <= 1; 
+	 
 	 //
 	 // Loop over 4 packets
-         for (x = 0 ; x < 4 ; x = x + 1) begin
+         for (int x = 0 ; x < 4 ; x = x + 1) begin
             populate_spi_command_packet(
 					SPI_COMMAND_ASYNC,
 					SPI_READ,
@@ -273,6 +263,8 @@ module axis_rtspi_unit_test;
 					);
 	    // Push out pkt to Stimulus FIFO
 	    axis_stimulus_pre.push_pkt(test_packet);
+	    // Increment burst SeqID for next packet
+	    test_packet.inc_seq_id();
 	 end
 
 	 //
@@ -283,6 +275,7 @@ module axis_rtspi_unit_test;
          @(negedge clk);
          // 100% duty cycle on AXIS input bus.
          enable_stimulus <= 1'b1;
+	 enable_response <= 1'b1;
          // Let response threads run
          ready_to_test <= 1;
          //
@@ -296,7 +289,7 @@ module axis_rtspi_unit_test;
 
 	 while (!ready_to_test) @(posedge clk);
 
-	 for (x = 0 ; x < 4 ; x = x + 1) begin
+	 for (int x = 0 ; x < 4 ; x = x + 1) begin
 	    spi.transaction(read_not_write,
 			     address,
 			     x,
@@ -314,10 +307,10 @@ module axis_rtspi_unit_test;
 	 while (!ready_to_test) @(posedge clk);
 
 	 response_packet = new;
-	 for (x = 0 ; x < 4 ; x = x + 1) begin
+	 for (int x = 0 ; x < 4 ; x = x + 1) begin
             response_packet.copy_to_pkt(axis_response_post);
 	    response_packet.assert_spi_response_packet(
-						       x[7:0], //bit [7:0]  seq_id,
+						       x, //bit [7:0]  seq_id,
 						       16'd24, // bit [15:0] length,
 						       {SRC0,DST0}, // flow_id_t flow_id,
 						       0, //bit [63:0] timestamp=0,
@@ -329,6 +322,7 @@ module axis_rtspi_unit_test;
 						       );
 	 end // for (x = 0 ; x < 4 ; x = x + 1)
 	 `INFO("test_good_async_command:  Good Response");
+	 disable watchdog_thread;
       end // block: read_response
       //
       begin : watchdog_thread
@@ -387,7 +381,7 @@ task initialize_packet_workspace;
    // Create Object
    test_packet = new;
    // Initialize header fields with default values
-   test_packet.init;
+   test_packet.init; // Sets most fields to zero.
    // Overide FlowID
    test_packet.set_flow_src(SRC0);
    test_packet.set_flow_dst(DST0);
