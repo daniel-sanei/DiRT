@@ -432,8 +432,8 @@ module axis_rtspi_unit_test;
 	    @(negedge spi.ss_b);
 	    time_edge = current_time;
 	    axis_time_out.read_beat(time_cmd , discard);
-	    //`FAIL_UNLESS_EQUAL(time_edge, time_cmd);
-	    $display("got %d , sent %d",time_edge, time_cmd);
+	    `FAIL_UNLESS_EQUAL(time_edge, time_cmd+3);
+	    $display("ss_b goes active @ %d , command time is %d",time_edge, time_cmd);
 	    
 	 end
       end // block: time_action
