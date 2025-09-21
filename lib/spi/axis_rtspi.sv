@@ -74,6 +74,7 @@ module axis_rtspi
 		      S_A2,
 		      S_A1,
 		      S_A0,
+		      S_WAIT_RISING,
 		      S_D7,
 		      S_D6,
 		      S_D5,
@@ -82,6 +83,8 @@ module axis_rtspi
 		      S_D2,
 		      S_D1,
 		      S_D0,
+		      S_SELECT_HIGH,
+		      S_SPI_CLOCK_INACTIVE,
 		      S_RESP_HEADER,
 		      S_RESP_TIME,
 		      S_RESP_PAYLOAD,
@@ -175,7 +178,7 @@ module axis_rtspi
 	      if (in_axis.tvalid && drat_header.packet_type == SPI_COMMAND) begin
 		 // 1st beat of expected synchronous command packet
 		 state <= S_TIMECHECK;
-		 in_axis.tready <= 1;
+		 in_axis.tready <= 0;
 		 if (drat_header.seq_id != expected_seq_id) begin
 		    // Seqid not what was expected, packet loss??? Flag error code and reset expected seqid
 		    error_codes <= error_codes | SPI_SEQ_ERROR;
@@ -202,6 +205,9 @@ module axis_rtspi
 		 // Unexpected packet type, packet fragement, packet missalignment etc. Discard.
 		 state <= S_DISCARD;
 		 in_axis.tready <= 1;
+	      end else begin
+		 // In all other cases keep ready asserted.
+		 in_axis.tready <= 1;
 	      end
 	   end
 	   // For synchronous command packets we block here until the timestamp matches system time.
@@ -212,13 +218,13 @@ module axis_rtspi
 		 // Matched execution time
 		 state <= S_TIMESKIP; // Transit through this state to signal tready to timestamp
 		 in_axis.tready <= 1;
-	      end else if (in_axis.tvalid &&  in_axis.tdata > system_time) begin
+	      end else if (in_axis.tvalid &&  in_axis.tdata < system_time) begin
 		 // Execution time already expired, we are late!
 		 error_codes <= error_codes | SPI_LATE;
-		 state <= S_TIMESKIP;
+		 state <= S_TIMESKIP; // Transit through this state to signal tready to timestamp
 		 in_axis.tready <= 1;
 	      end else begin
-		 // NOTE: No provision to timeout...we could be waiting here a loooong time at 64bits
+		 // NOTE: No provision to timeout...we could be waiting here a loooong time at 64bits with bad time.
 		 in_axis.tready <= 0;
 	      end
 	   end // case: S_TIMECHECK
@@ -375,121 +381,144 @@ module axis_rtspi
 		 spi.ss_b <= 0;
 		 spi.mosi <= rtspi_command.SPI_A0;
 		 active = 1;
-		 state <= S_D7;
+		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
+		    state <= S_WAIT_RISING; // Wait a half SCLK cycle for a rising edge then stay rising edge aligned for a read		    
+		 end else begin
+		    state <= S_D7; // Stay falling edge aligned for a write
+		 end
+	      end
+	   end // case: S_A0
+	   // Burn half an SCLK cycle in this state to shift to rising edge sampling.
+	   S_WAIT_RISING: begin
+	      if (sclk_rising) begin
+		 state <= S_D7; // Now transition to rising edge aligned read state sequence.
 	      end
 	   end
 	   // Data bit 7 Read or Write
 	   S_D7:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[7] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D7;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[7] <= spi.miso;
+		 state <= S_D6;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D7;
 		 state <= S_D6;
 	      end
 	   end
 	   // Data bit 6 Read or Write
 	   S_D6:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[6] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D6;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[6] <= spi.miso;
+		 state <= S_D5;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D6;
 		 state <= S_D5;
 	      end
 	   end
 	   // Data bit 5 Read or Write
 	   S_D5:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[6] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D5;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[5] <= spi.miso;
+		 state <= S_D4;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D5;
 		 state <= S_D4;
 	      end
 	   end
 	   // Data bit 4 Read or Write
 	   S_D4:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[6] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D4;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[4] <= spi.miso;
+		 state <= S_D3;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D4;
 		 state <= S_D3;
 	      end
 	   end
 	   // Data bit 3 Read or Write
 	   S_D3:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[6] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D3;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[3] <= spi.miso;
+		 state <= S_D2;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D3;
 		 state <= S_D2;
 	      end
 	   end // case: S_D3
 	   // Data bit 2 Read or Write
 	   S_D2:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[2] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D2;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[2] <= spi.miso;
+		 state <= S_D1;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D2;
 		 state <= S_D1;
 	      end
 	   end
 	   // Data bit 1 Read or Write
 	   S_D1:begin
-  	      if (sclk_falling) begin
-		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[1] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D1;
-		 end
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[1] <= spi.miso;
+		 state <= S_D0;
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D1;
 		 state <= S_D0;
 	      end
-	   end
+	   end // case: S_D1
 	   // Data bit 0 Read or Write
 	   S_D0:begin
-  	      if (sclk_falling) begin
+	      spi.ss_b <= 0;
+	      active = 1;
+  	      if (sclk_rising && rtspi_command.SPI_RW) begin // TRUE when read command.
+		 data_read[0] <= spi.miso;
+		 state <= S_SELECT_HIGH; // Half an SCLK cycle before bb_s should go high
+	      end else if (sclk_falling && ~rtspi_command.SPI_RW) begin // TRUE when write command.
+		 spi.mosi <= rtspi_command.SPI_D0;
+		 state <= S_SELECT_HIGH; // Full SCLK cycle before bb_s should go high
+	      end
+	   end // case: S_D0
+	   // Complete this SPI transaction by driving ss_b high at SCLK falling edge....
+	   S_SELECT_HIGH: begin
+	      active = 1;
+	      if (sclk_falling) begin
+		 spi.ss_b <= 1;
+		 spi.mosi <= 0;
+		 state <= S_SPI_CLOCK_INACTIVE;
+	      end
+	      else begin
 		 spi.ss_b <= 0;
-		 active = 1;
-		 if (rtspi_command.SPI_RW) begin // TRUE when read command.
-		    data_read[0] <= spi.miso;
-		 end else begin
-		    spi.mosi <= rtspi_command.SPI_D0;
-		 end
+	      end
+	   end // case: S_SELECT_HIGH
+	   // ...then taking the clock inactive (and high) at the subsequent rising edge)
+	   S_SPI_CLOCK_INACTIVE: begin
+	      if (sclk_rising) begin
+		 active = 0;
 		 out_axis.tdata <= {SPI_RESPONSE,response_seq_id,16'd24/*SIZE*/,csr_flow_id_response};
 		 out_axis.tvalid <= 1;
 		 out_axis.tlast <= 1'b0;
+		 response_seq_id <= response_seq_id + 1; // Can increment now response header captured in output buffer
 		 if (out_axis.tready) begin
 		    state <= S_RESP_TIME;
-		    response_seq_id <= response_seq_id + 1;
 		 end else begin
 		    state <= S_RESP_HEADER;
 		 end
-	      end
-	   end // case: S_D0
+	      end else begin // if (sclk_rising)
+		 active = 1;
+	      end // else: !if(sclk_rising)
+	   end
 	   // To avoid having a seperate state machine that emits a DRaT resonse and is loosly couple
 	   // with the state machine running the SPI master, with the potential veirification issues
 	   // and corner caes that could cause, we directly emit the response packet in the same state machine.

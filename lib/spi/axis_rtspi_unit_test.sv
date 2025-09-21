@@ -74,7 +74,9 @@ module axis_rtspi_unit_test;
    pkt_stream_t axis_response_pre(.clk(clk));
    // Post Buffer Output bus with Time concatenated.
    pkt_stream_t axis_response_post(.clk(clk));
-
+   // Busses to/from FIFO of time of events.
+   axis_t #(.WIDTH(64)) axis_time_in(.clk(clk));
+   axis_t #(.WIDTH(64)) axis_time_out(.clk(clk));
 
    //
    // Generate clk. (Nominally 100MHz, but that is arbitrary.)
@@ -172,9 +174,19 @@ module axis_rtspi_unit_test;
                           );
 
 
+   //-------------------------------------------------------------------------------
+   // Buffer raw timestamps that SPI commands are targeted to execute at.
+   //-------------------------------------------------------------------------------
 
-
-
+   axis_fifo_wrapper  #(
+                        .SIZE(10)
+                        )
+   axis_fifo_time_i (
+                         .clk(clk),
+                         .rst(rst),
+                         .in_axis(axis_time_in),
+                         .out_axis(axis_time_out)
+                         );
 
 
    //===================================
@@ -196,7 +208,7 @@ module axis_rtspi_unit_test;
       rst <= 1'b1;
       ready_to_test <= 0;
       csr_enable <= 0;
-      csr_sclk_div <= 6;
+      csr_sclk_div <= 5;
       csr_flow_id_response <= {DST0,SRC0};
       // Open all valves by default
       enable_stimulus <= 1'b1;
@@ -239,19 +251,19 @@ module axis_rtspi_unit_test;
    `SVTEST(test_good_async_command)
    `INFO("Issue a set of well formed SPI_COMMAND_ASYNC packets");
    fork
-      begin: load_stimulus
+      begin: load_stimulus1
+	 
          // Response threads can't run until stimulus loaded.
-         ready_to_test <= 0;
+         ready_to_test = 0;
          // Close valve after stimulus buffer
-         enable_stimulus <= 1'b0;
-	 enable_response <= 1'b0;
+         enable_stimulus = 1'b0;
+	 enable_response = 1'b0;
 	 // Setup Packet construction workspace
 	 // Single packet payload beat, timestamp set to 0
          initialize_packet_workspace(beats_to_bytes(1),'d0);
 	 @(posedge clk);
 	 // Simulate CSR interaction that turns on SPI master (With good default CSR state)
-	 csr_enable <= 1; 
-	 
+	 csr_enable = 1; 	 
 	 //
 	 // Loop over 4 packets
          for (int x = 0 ; x < 4 ; x = x + 1) begin
@@ -274,15 +286,15 @@ module axis_rtspi_unit_test;
          @(negedge clk);
          @(negedge clk);
          // 100% duty cycle on AXIS input bus.
-         enable_stimulus <= 1'b1;
-	 enable_response <= 1'b1;
+         enable_stimulus = 1'b1;
+	 enable_response = 1'b1;
          // Let response threads run
-         ready_to_test <= 1;
+         ready_to_test = 1;
          //
          `INFO("test_good_async_command: Stimulus done");
       end // block: load_stimulus
       //
-      begin : slave_BFM
+      begin : slave_BFM1
 	 automatic logic read_not_write;
 	 automatic logic [14:0] address;
 	 automatic logic [7:0] data_out;
@@ -302,7 +314,7 @@ module axis_rtspi_unit_test;
       end // block: slave_BFM
 
       //
-      begin : read_response
+      begin : read_response1
 
 	 while (!ready_to_test) @(posedge clk);
 
@@ -322,10 +334,135 @@ module axis_rtspi_unit_test;
 						       );
 	 end // for (x = 0 ; x < 4 ; x = x + 1)
 	 `INFO("test_good_async_command:  Good Response");
-	 disable watchdog_thread;
+	 disable watchdog_thread1;
       end // block: read_response
       //
-      begin : watchdog_thread
+      begin : watchdog_thread1
+         timeout = 100000;
+         while(1) begin
+            `FAIL_IF(timeout==0);
+            timeout = timeout - 1;
+            @(posedge clk);
+         end
+      end
+   join
+   @(negedge clk);
+   `SVTEST_END //TODO: TEST WRITE COMMANDS
+
+
+   `SVTEST(test_good_sync_command)
+   `INFO("Issue a set of well formed SPI_COMMAND packets, test that they execute correctly at correct time.");
+   fork
+      begin: load_stimulus2
+	 automatic logic [63:0] time_now;
+	 
+         // Response threads can't run until stimulus loaded.
+         ready_to_test = 0;
+         // Close valve after stimulus buffer
+         enable_stimulus = 1'b0;
+	 enable_response = 1'b0;
+	 // Setup Packet construction workspace
+	 // Single packet payload beat, timestamp set to 0
+         initialize_packet_workspace(beats_to_bytes(1),'d0);
+	 @(posedge clk);
+	 // Simulate CSR interaction that turns on SPI master (With good default CSR state)
+	 csr_enable = 1; 
+	 
+	 //
+	 // Loop over 4 packets
+         for (int x = 0 ; x < 4 ; x = x + 1) begin
+	    time_now = current_time;
+            populate_spi_command_packet(
+					SPI_COMMAND,
+					SPI_READ,
+					x[14:0],
+					8'h0,
+					time_now + 1000 + (x*500)// 1000*10nS=10uS in the future 
+					);
+            
+	    axis_time_in.write_beat(time_now+1000+(x*500),0);
+	    // Push out pkt to Stimulus FIFO
+	    axis_stimulus_pre.push_pkt(test_packet);
+	    // Increment burst SeqID for next packet
+	    test_packet.inc_seq_id();
+	 end
+
+	 //
+         // Stimulus fully loaded, initialise system for test and release stimulus
+         // by opening valve.
+         //
+         @(negedge clk);
+         @(negedge clk);
+         // 100% duty cycle on AXIS input bus.
+         enable_stimulus = 1'b1;
+	 enable_response = 1'b1;
+         // Let response threads run
+         ready_to_test = 1;
+         //
+         `INFO("test_good_sync_command: Stimulus done");
+      end // block: load_stimulus
+      //
+      begin : slave_BFM2
+	 automatic logic read_not_write;
+	 automatic logic [14:0] address;
+	 automatic logic [7:0] data_out;
+
+	 while (!ready_to_test) @(posedge clk);
+
+	 for (int x = 0 ; x < 4 ; x = x + 1) begin
+	    spi.transaction(read_not_write,
+			     address,
+			     x,
+			     data_out // Not expecting any data_out
+			     );
+
+	 end
+
+	 `INFO("test_good_sync_command: Good BFM");
+      end // block: slave_BFM
+      //
+      begin : time_action2
+	 automatic logic [63:0] time_cmd;
+	 automatic logic [63:0] time_edge;
+	 automatic logic discard;
+	 
+	 while (!ready_to_test) @(posedge clk);
+
+	 for (int x = 0 ; x < 4 ; x = x + 1) begin
+	    @(negedge spi.ss_b);
+	    time_edge = current_time;
+	    axis_time_out.read_beat(time_cmd , discard);
+	    //`FAIL_UNLESS_EQUAL(time_edge, time_cmd);
+	    $display("got %d , sent %d",time_edge, time_cmd);
+	    
+	 end
+      end // block: time_action
+	    
+      //
+      begin : read_response2
+
+	 while (!ready_to_test) @(posedge clk);
+
+	 response_packet = new;
+	 for (int x = 0 ; x < 4 ; x = x + 1) begin
+            response_packet.copy_to_pkt(axis_response_post);
+	    response_packet.assert_spi_response_packet(
+						       x, //bit [7:0]  seq_id,
+						       16'd24, // bit [15:0] length,
+						       {SRC0,DST0}, // flow_id_t flow_id,
+						       0, //bit [63:0] timestamp=0,
+						       0, //bit [63:0] timestamp_min=0,
+						       0, //bit [63:0] timestamp_max=0,
+						       SPI_ACK, //spi_status_t spi_status,
+						       x, //bit [7:0]  expected_seq_id,
+						       x //bit [7:0]  received_seq_id
+						       );
+	 end // for (x = 0 ; x < 4 ; x = x + 1)
+	 `INFO("test_good_sync_command:  Good Response");
+	 disable watchdog_thread2;
+      end // block: read_response
+      //
+      begin : watchdog_thread2
          timeout = 100000;
          while(1) begin
             `FAIL_IF(timeout==0);
@@ -352,17 +489,23 @@ module axis_rtspi_unit_test;
 task idle_all();
    axis_stimulus_pre.axis.idle_master();
    axis_response_post.axis.idle_slave();
+   axis_time_in.idle_master();
+   axis_time_out.idle_slave();
 endtask // idle_all
 
 //TODO:
 // Fills packet in workspace with random payload and pushes the headers to the FIFO
 // (Odd collection of functionality but maximizes code reuse)
-task populate_spi_command_packet;
-   input pkt_type_t pkt_type;
-   input logic read_not_write;
-   input logic [14:0] address;
-   input logic [7:0] data;
-
+task populate_spi_command_packet
+  (
+   input pkt_type_t pkt_type,
+   input logic read_not_write,
+   input logic [14:0] address,
+   input logic [7:0] data,
+   input logic [63:0] timestamp = 0
+   );
+   // Set execution time of synchoronous SPI commands using timestamp field.
+   test_packet.set_timestamp(timestamp);
    // On last packet of burst change type to INT16_COMPLEX_EOB
    test_packet.set_packet_type(pkt_type);
    // Populate payload beat
