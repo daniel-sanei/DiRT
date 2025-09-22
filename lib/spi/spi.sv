@@ -9,10 +9,14 @@
 // License: CERN-OHL-P (See LICENSE.md)
 //
 //-----------------------------------------------------------------------------
+
 `timescale 1ns/1ps
 
 `ifndef _SPI_SV_
  `define _SPI_SV_
+
+
+
 
 //
 // Declare SPI as a System Verilog interface
@@ -135,7 +139,8 @@ interface spi_t
       end
    endtask // read
 
-
+// Work around use of svunit definitions in a file seen by logic synth:
+ `ifdef FAIL_IF
    //
    // SPI Slave Transaction
    //
@@ -195,8 +200,10 @@ interface spi_t
 	 end // else: !if(read_not_write)
       end
    endtask // transaction
-
+ `endif //  `ifndef FAIL_IF
+   
 endinterface : spi_t
 
 
-`endif
+`endif //  `if
+
