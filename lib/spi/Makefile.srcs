@@ -9,8 +9,8 @@
 #
 #-----------------------------------------------------------------------------
 
-DIRT_SPI_SRCS = $(abspath $(addprefix $(DIRT_DIR)/lib/SPI/, \
-spi.sv
+DIRT_SPI_SRCS = $(abspath $(addprefix $(DIRT_DIR)/lib/spi/, \
 axis_rtspi_pkg.sv \
 axis_rtspi.sv \
+spi.sv \
 ))
