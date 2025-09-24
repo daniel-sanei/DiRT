@@ -44,7 +44,7 @@ module axis_rtspi
    // SPI electrical interface
    spi_t.master spi,
    // Command Bus
-   axis_t.master in_axis,
+   axis_t.slave in_axis,
    // Response Bus
    axis_t.master out_axis
    );
