@@ -86,6 +86,10 @@ typedef enum logic [7:0]
    READ_MM8=8'h85,
    // Response packet for 8bit memory mapped read transaction
    RESPONSE_MM8=8'h88,
+   // Special format packets for DiRT RTSPI block (Real-Time SPI Interface)
+   SPI_COMMAND=8'h89,
+   SPI_COMMAND_ASYNC=8'h8A,
+   SPI_RESPONSE=8'h8B,
    // Provides "execution" status for other packets back towards host
    STATUS=8'hC0,
 
@@ -103,6 +107,14 @@ typedef enum logic [31:0]
    SEQ_ERROR_MID=32'h8,
    LATE=32'h10
    } status_type_t;
+
+typedef enum logic [15:0]
+   {
+    SPI_ACK=16'h0,
+    SPI_SEQ_ERROR=16'h1,
+    SPI_LATE=16'h2
+    } spi_status_t;
+
 
 // enumerated addresses of flow src/sinks for test bench readability
 typedef enum logic [15:0]
@@ -166,12 +178,26 @@ typedef struct packed
                } int16_real_t;
 
 // Payload beat for STATUS packet.
+// TODO: Missing Expected SeqID field
 typedef struct packed
                {
                   status_type_t status_type;
                   logic [23:0] padding;
                   logic [7:0]  seq_id;
-               }  status_beat_t;
+               } status_beat_t;
+
+// Payload beat for SPI_COMMAND* and SPI_RESPONSE packets.
+typedef struct packed
+               {
+                  logic [7:0] padding;
+		  logic	      read_not_write;
+		  logic [14:0] address;
+		  logic [7:0]  data;
+		  spi_status_t spi_status;
+                  logic [7:0]  expected_seq_id;
+		  logic [7:0]  received_seq_id;
+               } spi_command_beat_t;
+
 
 // Generic payload beat.
 typedef union packed
@@ -180,6 +206,7 @@ typedef union packed
                  int16_complex_t int16_complex;
 		 int16_real_t int16_real;
                  status_beat_t status_beat;
+		 spi_command_beat_t spi_command_beat;
               } payload_beat_t;
 
 
@@ -353,6 +380,11 @@ class DRaTPacket;
       this.payload=new[len];
    endfunction : reset_payload
 
+   // Allocate payload beats from packet header size.
+   function void allocate_payload();
+      this.reset_payload(bytes_to_beats(this.header.length-16));
+   endfunction
+
    // Set length of packet (in bytes)
    function void set_length(shortint length);
       this.header.length = length;
@@ -498,6 +530,31 @@ class DRaTPacket;
       return(this.payload[0].status_beat.seq_id);
    endfunction : get_status_seq_id
 
+   // Get status field from SPI_RESPONSE packet
+   function spi_status_t get_spi_status();
+      return(this.payload[0].spi_command_beat.spi_status);
+   endfunction : get_spi_status
+
+   // Get expected SeqID field from SPI_RESPONSE packet payload
+   function bit [7:0] get_spi_expected_seq_id();
+      return(this.payload[0].spi_command_beat.expected_seq_id);
+   endfunction : get_spi_expected_seq_id
+
+   // Get received SeqID field from SPI_RESPONSE packet payload
+   function bit [7:0] get_spi_received_seq_id();
+      return(this.payload[0].spi_command_beat.received_seq_id);
+   endfunction : get_spi_received_seq_id
+
+  // Populate a payload beat of type spi_command_beat_t for use in SPI_COMMAND* packets
+   task set_spi_command;
+      input logic read_not_write;
+      input logic [14:0] address;
+      input logic [7:0] data;
+      payload[0].spi_command_beat.read_not_write = read_not_write;
+      payload[0].spi_command_beat.address = address;
+      payload[0].spi_command_beat.data = data; // Even if its a read, populate this with user supplied data for testing
+   endtask // set_spi_command
+
    // Generate a random payload of length determined by header
    // (Note size in header is in bytes and includes the header.
    function void random();
@@ -525,7 +582,6 @@ class DRaTPacket;
    endfunction : ramp
 
    // Verification function for STATUS format packets
- //  function void assert_status_packet(
    task assert_status_packet(
                                       bit [7:0] seq_id,
                                       bit [15:0] length,
@@ -545,8 +601,31 @@ class DRaTPacket;
        if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
        `FAIL_UNLESS_EQUAL(this.get_status_type() , status_type);
        `FAIL_UNLESS_EQUAL(this.get_status_seq_id(), status_seq_id);
-//   endfunction : assert_status_packet
-      endtask: assert_status_packet
+    endtask: assert_status_packet
+
+    // Verification function for SPI_RESPONSE format packets
+    task assert_spi_response_packet(
+                                    bit [7:0]  seq_id,
+                                    bit [15:0] length,
+				    flow_id_t flow_id,
+                                    bit [63:0] timestamp=0,
+                                    bit [63:0] timestamp_min=0,
+                                    bit [63:0] timestamp_max=0,
+				    spi_status_t spi_status,
+                                    bit [7:0]  expected_seq_id,
+				    bit [7:0]  received_seq_id
+                                    );
+       `FAIL_UNLESS_EQUAL(this.get_packet_type() , SPI_RESPONSE);
+       `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
+       `FAIL_UNLESS_EQUAL(this.get_length() , length);
+       `FAIL_UNLESS_EQUAL(this.get_flow_id() , flow_id);
+       if (timestamp != 0) `FAIL_UNLESS_EQUAL(this.get_timestamp(), timestamp);
+       if (timestamp_min != 0) `FAIL_UNLESS(this.get_timestamp() > timestamp_min);
+       if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
+       `FAIL_UNLESS_EQUAL(this.get_spi_status() , spi_status);
+       `FAIL_UNLESS_EQUAL(this.get_spi_expected_seq_id(), expected_seq_id);
+       `FAIL_UNLESS_EQUAL(this.get_spi_received_seq_id(), received_seq_id);
+      endtask: assert_spi_response_packet
 
    // Interfaces passed as args to tasks and functions must be virtual:
    // ieee 1800-2017: 25.9 "Virtual Interfaces"
@@ -555,7 +634,7 @@ class DRaTPacket;
       logic [63:0] tdata;
       logic        tlast;
 
-      axis_bus.pull_beat(tdata,tlast);
+      axis_bus.pull_beat(tdata,tlast); 
       `FAIL_UNLESS_EQUAL(tlast,0);
       this.set_raw_header(tdata);
       axis_bus.pull_beat(tdata,tlast);

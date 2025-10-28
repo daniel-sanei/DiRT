@@ -1,0 +1,26 @@
+regfile rtspi {
+  desc = "RTSPI Registers";
+
+  reg {
+    name="control";
+    desc="Controls operation of rtspi";
+    field {
+      sw=rw;
+      hw = r;
+    } sclk_div [15:8] = 8;
+    field {
+      sw=rw;
+      hw = r;
+    } enable [0:0] = 0;
+  } control;
+
+  reg {
+    name="response";
+    desc="FlowID for response packets returned from rtspi";
+    field {
+      sw=rw;
+      hw = r;
+    } flow_id [31:0] = 0;
+  } response;
+
+};
