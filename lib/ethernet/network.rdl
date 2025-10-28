@@ -1,0 +1,28 @@
+regfile network {
+  desc = "Networking Registers";
+  //-----------------------------------
+  // Xilinx PCS/PMA
+  //-----------------------------------
+
+  reg {
+    name="PCS PMA Control";
+    field {
+      sw=rw;
+      hw=r;
+      name="";
+      desc="";
+    } control [31:0] = 0x0;
+  } pcs_pma_control0 @ 0x0;
+
+  reg {
+    name="PCS PMA Status";
+    field {
+      sw=r;
+      hw=w;
+      name="";
+      desc="";
+    } status [31:0] = 0x0;
+  } pcs_pma_status0;
+  
+};
+
