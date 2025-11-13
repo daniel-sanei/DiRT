@@ -39,6 +39,8 @@ module dsp_tx
     input logic        csr_tx_error_policy_next_packet,
     // System Time Output
     input logic [63:0] system_time,
+    // Flag active TX operation
+    output wire        run,
     // TX Sample Output Bus
     axis_t.master axis_tx_sample,
     // DRaT packets in
@@ -48,7 +50,6 @@ module dsp_tx
     );
 
    wire [63:0] probe ; // Debug
-   wire        run;
 
    //-----------------------------------------------------------------------------
    //
