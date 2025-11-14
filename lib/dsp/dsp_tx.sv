@@ -40,7 +40,7 @@ module dsp_tx
     // System Time Output
     input logic [63:0] system_time,
     // Flag active TX operation
-    output wire        run,
+    output logic        run,
     // TX Sample Output Bus
     axis_t.master axis_tx_sample,
     // DRaT packets in
@@ -84,6 +84,14 @@ module dsp_tx
                            .occupied(tx_data_buffer_fullness)
                            );
 
+   // Register run signal to improve long timing paths and prevent combinatrial glitches propagating
+   logic run_out;
+
+   always_ff @(posedge clk) begin
+      run <= run_out;
+   end
+
+
    //-------------------------------------------------------------------------------
    // Unpack packets in sync with time to present stream on sample bus
    //-------------------------------------------------------------------------------
@@ -106,7 +114,7 @@ module dsp_tx
       // Error policy register
       .error_policy_next_packet(csr_tx_error_policy_next_packet),
       // Flag Output beats that are active sample data vs zero padding
-      .run_out(run),
+      .run_out(run_out),
       // Dirt/DRat packetized stream in
       .axis_pkt(axis_tx_packet_fifo),
       // Status pkt stream out
