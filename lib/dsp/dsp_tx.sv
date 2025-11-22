@@ -11,6 +11,7 @@
 // License: CERN-OHL-P (See LICENSE.md)
 //
 //-----------------------------------------------------------------------------
+`default_nettype none
 `timescale 1ns/1ps
 
 module dsp_tx
@@ -20,25 +21,25 @@ module dsp_tx
     parameter IQ_WIDTH = 16  // Default from axis_stream_to_pkt_wrapper
     )
    (
-    input logic        clk,
-    input logic        rst,
+    input wire          clk,
+    input wire          rst,
     //
     // Control and Status Regs (CSR)
     //
-    input logic        csr_tx_deframer_enable,
-    input logic        csr_tx_status_enable,
-    input logic        csr_tx_consumption_enable,
-    input logic        csr_tx_control_enable,
+    input wire          csr_tx_deframer_enable,
+    input wire          csr_tx_status_enable,
+    input wire          csr_tx_consumption_enable,
+    input wire          csr_tx_control_enable,
     // Interval between consumption packets
-    input logic [7:0]  csr_tx_consumption_period,
+    input wire [7:0]    csr_tx_consumption_period,
     // FlowID to me used in status packet header
-    input logic [31:0] csr_tx_status_flow_id,
+    input wire [31:0]   csr_tx_status_flow_id,
     // FlowID to me used in consumption packet header
-    input logic [31:0] csr_tx_consumption_flow_id,
+    input wire [31:0]   csr_tx_consumption_flow_id,
     // Error policy register
-    input logic        csr_tx_error_policy_next_packet,
+    input wire          csr_tx_error_policy_next_packet,
     // System Time Output
-    input logic [63:0] system_time,
+    input wire [63:0]   system_time,
     // Flag active TX operation
     output logic        run,
     // TX Sample Output Bus
