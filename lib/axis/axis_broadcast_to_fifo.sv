@@ -1,5 +1,5 @@
 //------------------------------------------------------------------------------
-// File:    axis_broadcast_to_fifo_eob.sv
+// File:    axis_broadcast_to_fifo.sv
 //
 // Author:  Ian Buckley, Ion Concepts LLC
 //
