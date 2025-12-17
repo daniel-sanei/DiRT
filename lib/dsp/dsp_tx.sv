@@ -11,6 +11,7 @@
 // License: CERN-OHL-P (See LICENSE.md)
 //
 //-----------------------------------------------------------------------------
+`default_nettype none
 `timescale 1ns/1ps
 
 module dsp_tx
@@ -20,25 +21,27 @@ module dsp_tx
     parameter IQ_WIDTH = 16  // Default from axis_stream_to_pkt_wrapper
     )
    (
-    input logic        clk,
-    input logic        rst,
+    input wire          clk,
+    input wire          rst,
     //
     // Control and Status Regs (CSR)
     //
-    input logic        csr_tx_deframer_enable,
-    input logic        csr_tx_status_enable,
-    input logic        csr_tx_consumption_enable,
-    input logic        csr_tx_control_enable,
+    input wire          csr_tx_deframer_enable,
+    input wire          csr_tx_status_enable,
+    input wire          csr_tx_consumption_enable,
+    input wire          csr_tx_control_enable,
     // Interval between consumption packets
-    input logic [7:0]  csr_tx_consumption_period,
+    input wire [7:0]    csr_tx_consumption_period,
     // FlowID to me used in status packet header
-    input logic [31:0] csr_tx_status_flow_id,
+    input wire [31:0]   csr_tx_status_flow_id,
     // FlowID to me used in consumption packet header
-    input logic [31:0] csr_tx_consumption_flow_id,
+    input wire [31:0]   csr_tx_consumption_flow_id,
     // Error policy register
-    input logic        csr_tx_error_policy_next_packet,
+    input wire          csr_tx_error_policy_next_packet,
     // System Time Output
-    input logic [63:0] system_time,
+    input wire [63:0]   system_time,
+    // Flag active TX operation
+    output logic        run,
     // TX Sample Output Bus
     axis_t.master axis_tx_sample,
     // DRaT packets in
@@ -48,7 +51,6 @@ module dsp_tx
     );
 
    wire [63:0] probe ; // Debug
-   wire        run;
 
    //-----------------------------------------------------------------------------
    //
@@ -83,6 +85,14 @@ module dsp_tx
                            .occupied(tx_data_buffer_fullness)
                            );
 
+   // Register run signal to improve long timing paths and prevent combinatrial glitches propagating
+   logic run_out;
+
+   always_ff @(posedge clk) begin
+      run <= run_out;
+   end
+
+
    //-------------------------------------------------------------------------------
    // Unpack packets in sync with time to present stream on sample bus
    //-------------------------------------------------------------------------------
@@ -105,7 +115,7 @@ module dsp_tx
       // Error policy register
       .error_policy_next_packet(csr_tx_error_policy_next_packet),
       // Flag Output beats that are active sample data vs zero padding
-      .run_out(run),
+      .run_out(run_out),
       // Dirt/DRat packetized stream in
       .axis_pkt(axis_tx_packet_fifo),
       // Status pkt stream out
