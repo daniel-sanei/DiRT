@@ -1,7 +1,8 @@
 //------------------------------------------------------------------------------
-// File:    axis_broadcast_to_fifo.sv
+// File:    axis_broadcast_to_fifo_eob.sv
 //
 // Author:  Ian Buckley, Ion Concepts LLC
+//
 //
 // Parameterizable:
 // * Size of main FIFO
@@ -10,6 +11,7 @@
 // Description:
 // Bridges broadcast bus to regular FIFO interface for DRaT packets.
 // Filter imports FlowID so that CSR support can be added.
+// Filters to only pass packets of types: INT16_COMPLEX, INT16_COMPLEX_EOB
 //
 // License: CERN-OHL-P (See LICENSE.md)
 //
@@ -39,15 +41,15 @@ module axis_broadcast_to_fifo
     //-------------------------------------------------------------------------------
     output logic csr_overflow,
     input logic  csr_enable,
-    drat_protocol::flow_id_t csr_flow_id,
+    input drat_protocol::flow_id_t csr_flow_id,
     input logic  csr_match_src,
     input logic  csr_match_dst
     );
-   
+
    import drat_protocol::*;
-   
+
    logic [63:0]  header_in;
-   
+
    logic           pass_in;
 
    axis_t #(.WIDTH(64)) axis_filter(.clk(clk));
@@ -98,10 +100,10 @@ module axis_broadcast_to_fifo
             // Trunctaing length LSB's so test for less than space in case there is a last beat with < 8 octets
             automatic drat_protocol::pkt_header_t header = drat_protocol::populate_header_no_timestamp(header_in);
             automatic logic        size_test;
-            
+
             size_test = header.length[15:3] < space;
 
-            pass_in = (header.packet_type == INT16_COMPLEX) &&
+            pass_in = ((header.packet_type == INT16_COMPLEX) || (header.packet_type == INT16_COMPLEX_EOB)) &&
                       ((header.flow_id.flow_addr.flow_src == csr_flow_id.flow_addr.flow_src) || ~csr_match_src) &&
                       ((header.flow_id.flow_addr.flow_dst == csr_flow_id.flow_addr.flow_dst) || ~csr_match_dst) &&
                       size_test;
@@ -109,11 +111,11 @@ module axis_broadcast_to_fifo
       end else  begin: accept_overflow
          always_comb begin
             automatic drat_protocol::pkt_header_t header = drat_protocol::populate_header_no_timestamp(header_in);
-            pass_in = (header.packet_type == INT16_COMPLEX) &&
+            pass_in = ((header.packet_type == INT16_COMPLEX) || (header.packet_type == INT16_COMPLEX_EOB)) &&
                       ((header.flow_id.flow_addr.flow_src == csr_flow_id.flow_addr.flow_src) || ~csr_match_src) &&
                       ((header.flow_id.flow_addr.flow_dst == csr_flow_id.flow_addr.flow_dst) || ~csr_match_dst);
-            
-         end           
+
+         end
       end // block: mitigate_overflow
    endgenerate
 
@@ -135,7 +137,7 @@ module axis_broadcast_to_fifo
    //-------------------------------------------------------------------------------
    axis_fifo_wrapper
      #(
-       .SIZE(9),
+       .SIZE(FIFO_SIZE),
        .ULTRA(0)
        )
    packet_fifo_i0
