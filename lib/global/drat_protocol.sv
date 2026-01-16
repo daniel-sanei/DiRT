@@ -26,9 +26,19 @@ package drat_protocol;
 
 // Make the math trivial to calculate bytes from beats.
 
-// (xsim in 2022.2 does not support 'let')
- let beats_to_bytes(x) = (x)*8;
- let bytes_to_beats(x) = (((x)+7)>>3);
+   // (xsim in 2022.2 does not support 'let')
+`ifdef _NO_SV_LET_SUPPORT_
+   function integer beats_to_bytes(input integer x);
+      return ((x)*8);
+   endfunction : beats_to_bytes
+
+   function integer bytes_to_beats(input integer x);
+      return (((x)+7)>>3);
+   endfunction : bytes_to_beats
+`else
+   let beats_to_bytes(x) = (x)*8;
+   let bytes_to_beats(x) = (((x)+7)>>3);
+`endif // !`ifdef _NO_SV_LET_SUPPORT_
 
 
 // Enumerate the various defined packet types
