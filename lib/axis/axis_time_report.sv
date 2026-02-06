@@ -63,6 +63,9 @@ module axis_time_report
      if(rst) begin
         counter <= 16'd1;
         generate_pkt <= 1'b0;
+     end else if (~csr_enable) begin
+	counter <= 16'd1;
+        generate_pkt <= 1'b0;
      end else if (current_time[7:0] == 8'h00) begin
         if (counter == csr_period) begin
            generate_pkt <= 1'b1;
@@ -87,7 +90,7 @@ module axis_time_report
 
    always_ff @(posedge clk) begin
       if (rst) begin
-         state <= S_IDLE;
+         state <= S_IDLE;48
       end else begin
          case (state)
            // Spin in this state until the generation of a packet is triggered.
