@@ -150,7 +150,7 @@ module axis_tx_control
 
     always_ff @(posedge clk) begin
        if (rst) begin
-          generate_consumption_out <= 1'b1;
+          generate_consumption_out <= 1'b0;
           consumed_seq_num_out <= 0;
           consumption_counter <= 1;
        end else if (consumption_period == 0) begin
