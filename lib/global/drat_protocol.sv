@@ -600,17 +600,23 @@ class DRaTPacket;
                                       bit [63:0] timestamp_min=0,
                                       bit [63:0] timestamp_max=0,
                                       status_type_t status_type,
-                                      bit [7:0] status_seq_id
+                                      bit [7:0] status_seq_id,
+			              bit verbose = 0
                                       );
-       `FAIL_UNLESS_EQUAL(this.get_packet_type() , STATUS);
-       `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
-       `FAIL_UNLESS_EQUAL(this.get_length() , length);
-       `FAIL_UNLESS_EQUAL(this.get_flow_id() , flow_id);
+				      string s1, s2;
+				      s1.itoa(this.get_timestamp());
+				      s2.itoa(timestamp_min);
+      if (verbose) print_header(header);
+      `FAIL_UNLESS_EQUAL(this.get_packet_type() , STATUS);
+      `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
+      `FAIL_UNLESS_EQUAL(this.get_length() , length);
+      `FAIL_UNLESS_EQUAL(this.get_flow_id() , flow_id);
        if (timestamp != 0) `FAIL_UNLESS_EQUAL(this.get_timestamp(), timestamp);
-       if (timestamp_min != 0) `FAIL_UNLESS(this.get_timestamp() > timestamp_min);
+       if (timestamp_min != 0) `FAIL_UNLESS_LOG(this.get_timestamp() > timestamp_min, {s1 , " > ", s2}  );
        if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
        `FAIL_UNLESS_EQUAL(this.get_status_type() , status_type);
        `FAIL_UNLESS_EQUAL(this.get_status_seq_id(), status_seq_id);
+      if (verbose) print_header(header);
     endtask: assert_status_packet
 
     // Verification function for SPI_RESPONSE format packets
@@ -623,8 +629,10 @@ class DRaTPacket;
                                     bit [63:0] timestamp_max=0,
 				    spi_status_t spi_status,
                                     bit [7:0]  expected_seq_id,
-				    bit [7:0]  received_seq_id
+				    bit [7:0]  received_seq_id,
+				    bit verbose = 0
                                     );
+       if (verbose) print_header(header);
        `FAIL_UNLESS_EQUAL(this.get_packet_type() , SPI_RESPONSE);
        `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
        `FAIL_UNLESS_EQUAL(this.get_length() , length);
@@ -637,6 +645,26 @@ class DRaTPacket;
        `FAIL_UNLESS_EQUAL(this.get_spi_received_seq_id(), received_seq_id);
       endtask: assert_spi_response_packet
 
+   // Verification function for TIME_REPORT format packets
+   task assert_time_report_packet(
+                                  bit [7:0]  seq_id,
+				  flow_id_t flow_id,
+                                  bit [63:0] timestamp=0,
+                                  bit [63:0] timestamp_min=0,
+                                  bit [63:0] timestamp_max=0,
+				  bit verbose=0
+                                   );
+      if (verbose) print_header(header);
+      `FAIL_UNLESS_EQUAL(this.get_packet_type() , TIME_REPORT);
+      `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
+      `FAIL_UNLESS_EQUAL(this.get_length() , 16);
+      `FAIL_UNLESS_EQUAL(this.get_flow_id() , flow_id);
+      if (timestamp != 0) `FAIL_UNLESS_EQUAL(this.get_timestamp(), timestamp);
+      if (timestamp_min != 0) `FAIL_UNLESS(this.get_timestamp() > timestamp_min);
+      if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
+   endtask: assert_time_report_packet
+
+   
    // Interfaces passed as args to tasks and functions must be virtual:
    // ieee 1800-2017: 25.9 "Virtual Interfaces"
    task copy_to_pkt(virtual interface pkt_stream_t axis_bus);
@@ -648,7 +676,7 @@ class DRaTPacket;
       `FAIL_UNLESS_EQUAL(tlast,0);
       this.set_raw_header(tdata);
       axis_bus.pull_beat(tdata,tlast);
-      `FAIL_UNLESS_EQUAL(tlast,0);
+      // `FAIL_UNLESS_EQUAL(tlast,0); // Commented this line to support TIME_REPORT
       this.set_timestamp(tdata);
       payload = new[bytes_to_beats(this.header.length-16)];
       // Assert on tlast is done one pass in arrears so that we can check for tlast==1
