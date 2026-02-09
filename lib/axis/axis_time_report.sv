@@ -5,7 +5,7 @@
 //
 // Description:
 // This module emits TIME_REPORT packets on demand.
-// It maintains it's own Sequence Number counter. 
+// It maintains it's own Sequence Number counter.
 // FlowID is applied externally but should
 // not be changed during operation, only when dissabled.
 //
@@ -54,17 +54,19 @@ module axis_time_report
    logic [15:0]            counter;
    logic [7:0]             seq_num;
    logic                   generate_pkt;
-   
+
 
    // Count down interval between TIME_REPORTs
-   // Counter is initialized to 1 so that we can use simple equality test
-   // to check for reset condition.
+   // Counter is initialized to 1 
    always_ff @(posedge clk)
      if(rst) begin
         counter <= 16'd1;
         generate_pkt <= 1'b0;
+     end else if (~csr_enable) begin
+        counter <= 16'd1;
+        generate_pkt <= 1'b0;
      end else if (current_time[7:0] == 8'h00) begin
-        if (counter == csr_period) begin
+        if (counter >= csr_period) begin
            generate_pkt <= 1'b1;
            counter <= 16'b1;
         end else begin
@@ -116,9 +118,9 @@ module axis_time_report
       axis_time_out.tlast = (state == S_TIME);
       case(state)
         S_HEADER  : axis_time_out.tdata = { C_PKT_TYPE, seq_num, C_TIME_PACKET_LENGTH, csr_flow_id };
-        S_TIME    : axis_time_out.tdata = current_time; 
+        S_TIME    : axis_time_out.tdata = current_time;
         default : axis_time_out.tdata = 64'd0; // Arbitrary default.
       endcase // case (state)
    end
 
-endmodule 
+endmodule
