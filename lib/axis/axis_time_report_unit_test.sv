@@ -26,7 +26,7 @@ module axis_time_report_unit_test;
    string name = "axis_time_report_ut";
    svunit_testcase svunit_ut;
 
- 
+
    logic clk;
    logic rst;
 
@@ -34,14 +34,14 @@ module axis_time_report_unit_test;
    // CSRs
    //
    logic csr_enable;
-   logic [15:0]	csr_period;  
-   logic [31:0]	csr_flow_id;
+   logic [15:0] csr_period;
+   logic [31:0] csr_flow_id;
 
    // System time
-   logic [63:0]	current_time;
-   
-   
-   // Bus between UUT egress0 and 
+   logic [63:0] current_time;
+
+
+   // Bus between UUT egress0 and
    pkt_stream_t out_axis(.clk(clk));
 
    // Declarations for Stimulus Thread(s)
@@ -51,7 +51,7 @@ module axis_time_report_unit_test;
 
    // Declarations for Response Thread(s)
    DRaTPacket response_packet;
-   
+
    // Watchdog
    int          timeout;
 
@@ -71,9 +71,9 @@ module axis_time_report_unit_test;
 
    always_ff @(posedge clk) begin
       if (rst)
-	current_time <= 0;
+        current_time <= 0;
       else
-	current_time <= current_time + 1 ;
+        current_time <= current_time + 1 ;
    end
 
   //===================================
@@ -176,12 +176,12 @@ module axis_time_report_unit_test;
 
    fork
       begin : load_stimulus
-	 @(posedge clk);
-	 csr_enable <= 0;
-	 csr_period <= 10;
-	 csr_flow_id <= {DST0,SRC0};
-	 @(posedge clk);
-	 csr_enable <= 1;
+         @(posedge clk);
+         csr_enable <= 0;
+         csr_period <= 10;
+         csr_flow_id <= {DST0,SRC0};
+         @(posedge clk);
+         csr_enable <= 1;
          ready_to_test <= 1;
          //
          `INFO("gross_error_check): Stimulus Done");
@@ -191,45 +191,45 @@ module axis_time_report_unit_test;
 
       // Response thread for output
       begin: read_response_out
-	 // This simulation should produce TBD
+         // This simulation should produce TBD
          //
-	 while (!ready_to_test) @(posedge clk);
-	 
+         while (!ready_to_test) @(posedge clk);
+
          response_packet = new;
          response_packet.copy_to_pkt(out_axis);
          response_packet.assert_time_report_packet(
-						   0,           // SEQ NUM
-						   {DST0,SRC0}, // FLOWID
-						   0,           // TIMESTAMP
-						   'd2000,      // TIMESTAMP MIN
-						   'd3000,      // TIMESTAMP MAX
-						   1            // VERBOSE
-						   );
+                                                   0,           // SEQ NUM
+                                                   {DST0,SRC0}, // FLOWID
+                                                   0,           // TIMESTAMP
+                                                   'd2000,      // TIMESTAMP MIN
+                                                   'd3000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
 
-	 response_packet.copy_to_pkt(out_axis);
-	 
+         response_packet.copy_to_pkt(out_axis);
+
          response_packet.assert_time_report_packet(
-						   1,           // SEQ NUM
-						   {DST0,SRC0}, // FLOWID
-						   0,           // TIMESTAMP
-						   'd5000,      // TIMESTAMP MIN
-						   'd6000,      // TIMESTAMP MAX
-						   1            // VERBOSE
-						   );
+                                                   1,           // SEQ NUM
+                                                   {DST0,SRC0}, // FLOWID
+                                                   0,           // TIMESTAMP
+                                                   'd5000,      // TIMESTAMP MIN
+                                                   'd6000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
 
          `INFO("gross_error_check: Good Response");
-	 
-	 repeat(100) @(posedge clk);
-	 disable watchdog_thread;
+
+         repeat(100) @(posedge clk);
+         disable watchdog_thread;
       end // block: read_response_out
 
       begin : watchdog_thread
-	 timeout = 10000;
-	 while(1) begin
-	    `FAIL_IF(timeout==0);
-	    timeout = timeout - 1;
-	    @(negedge clk);
-	 end
+         timeout = 10000;
+         while(1) begin
+            `FAIL_IF(timeout==0);
+            timeout = timeout - 1;
+            @(negedge clk);
+         end
       end
    join
 
@@ -239,7 +239,7 @@ module axis_time_report_unit_test;
      `SVUNIT_TESTS_END
 
        task idle_all();
-	  out_axis.axis.idle_slave();
+          out_axis.axis.idle_slave();
        endtask // idle_all
 
 endmodule
