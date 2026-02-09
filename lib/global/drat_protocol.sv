@@ -200,12 +200,12 @@ typedef struct packed
 typedef struct packed
                {
                   logic [7:0] padding;
-		  logic	      read_not_write;
-		  logic [14:0] address;
-		  logic [7:0]  data;
-		  spi_status_t spi_status;
+                  logic       read_not_write;
+                  logic [14:0] address;
+                  logic [7:0]  data;
+                  spi_status_t spi_status;
                   logic [7:0]  expected_seq_id;
-		  logic [7:0]  received_seq_id;
+                  logic [7:0]  received_seq_id;
                } spi_command_beat_t;
 
 
@@ -214,9 +214,9 @@ typedef union packed
               {
                  logic [63:0] beat;
                  int16_complex_t int16_complex;
-		 int16_real_t int16_real;
+                 int16_real_t int16_real;
                  status_beat_t status_beat;
-		 spi_command_beat_t spi_command_beat;
+                 spi_command_beat_t spi_command_beat;
               } payload_beat_t;
 
 
@@ -323,8 +323,8 @@ function logic payload_compare(input pkt_payload_t a, input pkt_payload_t b);
            $display("Payload Beat missmatch: %x vs %x at beat %d",a[i],b[i],i);
            return (0);
         end //else begin
-	  //$display("Payload Beat     match: %x vs %x at beat %d",a[i],b[i],i);
-	  // end
+          //$display("Payload Beat     match: %x vs %x at beat %d",a[i],b[i],i);
+          // end
     end
     return(1);
 endfunction
@@ -601,11 +601,12 @@ class DRaTPacket;
                                       bit [63:0] timestamp_max=0,
                                       status_type_t status_type,
                                       bit [7:0] status_seq_id,
-			              bit verbose = 0
+                                      bit verbose = 0
                                       );
-				      string s1, s2;
-				      s1.itoa(this.get_timestamp());
-				      s2.itoa(timestamp_min);
+      string s1, s2, s3;
+      s1.itoa(this.get_timestamp());
+      s2.itoa(timestamp_min);
+      s3.itoa(timestamp_max);
       if (verbose) print_header(header);
       `FAIL_UNLESS_EQUAL(this.get_packet_type() , STATUS);
       `FAIL_UNLESS_EQUAL(this.get_seq_id() , seq_id)
@@ -613,24 +614,23 @@ class DRaTPacket;
       `FAIL_UNLESS_EQUAL(this.get_flow_id() , flow_id);
        if (timestamp != 0) `FAIL_UNLESS_EQUAL(this.get_timestamp(), timestamp);
        if (timestamp_min != 0) `FAIL_UNLESS_LOG(this.get_timestamp() > timestamp_min, {s1 , " > ", s2}  );
-       if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
+       if (timestamp_max != 0) `FAIL_UNLESS_LOG(this.get_timestamp() < timestamp_max, {s1 , " < ", s3} );
        `FAIL_UNLESS_EQUAL(this.get_status_type() , status_type);
        `FAIL_UNLESS_EQUAL(this.get_status_seq_id(), status_seq_id);
-      if (verbose) print_header(header);
     endtask: assert_status_packet
 
     // Verification function for SPI_RESPONSE format packets
     task assert_spi_response_packet(
                                     bit [7:0]  seq_id,
                                     bit [15:0] length,
-				    flow_id_t flow_id,
+                                    flow_id_t flow_id,
                                     bit [63:0] timestamp=0,
                                     bit [63:0] timestamp_min=0,
                                     bit [63:0] timestamp_max=0,
-				    spi_status_t spi_status,
+                                    spi_status_t spi_status,
                                     bit [7:0]  expected_seq_id,
-				    bit [7:0]  received_seq_id,
-				    bit verbose = 0
+                                    bit [7:0]  received_seq_id,
+                                    bit verbose = 0
                                     );
        if (verbose) print_header(header);
        `FAIL_UNLESS_EQUAL(this.get_packet_type() , SPI_RESPONSE);
@@ -648,11 +648,11 @@ class DRaTPacket;
    // Verification function for TIME_REPORT format packets
    task assert_time_report_packet(
                                   bit [7:0]  seq_id,
-				  flow_id_t flow_id,
+                                  flow_id_t flow_id,
                                   bit [63:0] timestamp=0,
                                   bit [63:0] timestamp_min=0,
                                   bit [63:0] timestamp_max=0,
-				  bit verbose=0
+                                  bit verbose=0
                                    );
       if (verbose) print_header(header);
       `FAIL_UNLESS_EQUAL(this.get_packet_type() , TIME_REPORT);
@@ -664,7 +664,7 @@ class DRaTPacket;
       if (timestamp_max != 0) `FAIL_UNLESS(this.get_timestamp() < timestamp_max);
    endtask: assert_time_report_packet
 
-   
+
    // Interfaces passed as args to tasks and functions must be virtual:
    // ieee 1800-2017: 25.9 "Virtual Interfaces"
    task copy_to_pkt(virtual interface pkt_stream_t axis_bus);
@@ -672,7 +672,7 @@ class DRaTPacket;
       logic [63:0] tdata;
       logic        tlast;
 
-      axis_bus.pull_beat(tdata,tlast); 
+      axis_bus.pull_beat(tdata,tlast);
       `FAIL_UNLESS_EQUAL(tlast,0);
       this.set_raw_header(tdata);
       axis_bus.pull_beat(tdata,tlast);
@@ -695,8 +695,8 @@ class DRaTPacket;
            assert(payload_compare(this.payload,test_packet.get_payload()));
            return(1); // Should not get here if assert triggered
         end else begin
-	   //if (!header_compare(this.header,test_packet.get_header())) $display("Header compare failed.");
-	   //if (!payload_compare(this.payload,test_packet.get_payload())) $display("Payload compare failed.");
+           //if (!header_compare(this.header,test_packet.get_header())) $display("Header compare failed.");
+           //if (!payload_compare(this.payload,test_packet.get_payload())) $display("Payload compare failed.");
            return(header_compare(this.header,test_packet.get_header()) &&
                   payload_compare(this.payload,test_packet.get_payload()));
         end

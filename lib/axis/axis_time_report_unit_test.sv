@@ -166,10 +166,9 @@ module axis_time_report_unit_test;
   //===================================
   // Test:
   //
-  // pass_data
+  // gross_error_check
+  // - Easy simulation just looks at two emited time_reports.
   //
-  // Feed packets to fifo
-  // Check all emerge in order and unaltered.
   //===================================
   `SVTEST(gross_error_check)
   `INFO("Simple test for gross errors");
@@ -184,7 +183,7 @@ module axis_time_report_unit_test;
          csr_enable <= 1;
          ready_to_test <= 1;
          //
-         `INFO("gross_error_check): Stimulus Done");
+         `INFO("gross_error_check: Stimulus Done");
          //
       end // block: load_stimulus
 
@@ -200,7 +199,7 @@ module axis_time_report_unit_test;
          response_packet.assert_time_report_packet(
                                                    0,           // SEQ NUM
                                                    {DST0,SRC0}, // FLOWID
-                                                   0,           // TIMESTAMP
+                                                   'd2563,      // TIMESTAMP
                                                    'd2000,      // TIMESTAMP MIN
                                                    'd3000,      // TIMESTAMP MAX
                                                    1            // VERBOSE
@@ -211,13 +210,109 @@ module axis_time_report_unit_test;
          response_packet.assert_time_report_packet(
                                                    1,           // SEQ NUM
                                                    {DST0,SRC0}, // FLOWID
-                                                   0,           // TIMESTAMP
+                                                   'd5123,      // TIMESTAMP
                                                    'd5000,      // TIMESTAMP MIN
                                                    'd6000,      // TIMESTAMP MAX
                                                    1            // VERBOSE
                                                    );
 
          `INFO("gross_error_check: Good Response");
+
+         repeat(100) @(posedge clk);
+         disable watchdog_thread;
+      end // block: read_response_out
+
+      begin : watchdog_thread
+         timeout = 10000;
+         while(1) begin
+            `FAIL_IF(timeout==0);
+            timeout = timeout - 1;
+            @(negedge clk);
+         end
+      end
+   join
+
+   `SVTEST_END
+
+  //===================================
+  // Test:
+  //
+  // change_period_on_the_fly
+  // - Chnage period to be shorter after two time_report packets
+  // - verify it changes without long pause
+  //===================================
+  `SVTEST(change_period_on_the_fly)
+   `INFO("Test that shortening period is immediately adopted.");
+
+   fork
+      begin : load_stimulus
+         @(posedge clk);
+         csr_enable <= 0;
+         csr_period <= 10;
+         csr_flow_id <= {DST1,SRC1};
+         @(posedge clk);
+         csr_enable <= 1;
+         ready_to_test <= 1;
+	 repeat(7000) @(posedge clk);
+	 csr_period <= 5;
+         //
+         `INFO("change_period_on_the_fly: Stimulus Done");
+         //
+      end // block: load_stimulus
+
+
+      // Response thread for output
+      begin: read_response_out
+         // This simulation should produce TBD
+         //
+         while (!ready_to_test) @(posedge clk);
+
+         response_packet = new;
+         response_packet.copy_to_pkt(out_axis);
+         response_packet.assert_time_report_packet(
+                                                   0,           // SEQ NUM
+                                                   {DST1,SRC1}, // FLOWID
+                                                   'd2563,      // TIMESTAMP
+                                                   'd2000,      // TIMESTAMP MIN
+                                                   'd3000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
+
+         response_packet.copy_to_pkt(out_axis);
+
+         response_packet.assert_time_report_packet(
+                                                   1,           // SEQ NUM
+                                                   {DST1,SRC1}, // FLOWID
+                                                   'd5123,      // TIMESTAMP
+                                                   'd5000,      // TIMESTAMP MIN
+                                                   'd6000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
+         // Should now trigger the instant that the period is changed
+         // as count has exceeded the new period
+         response_packet.copy_to_pkt(out_axis);
+
+         response_packet.assert_time_report_packet(
+                                                   2,           // SEQ NUM
+                                                   {DST1,SRC1}, // FLOWID
+                                                   'd7171,         // TIMESTAMP
+                                                   'd7000,      // TIMESTAMP MIN
+                                                   'd8000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
+
+         response_packet.copy_to_pkt(out_axis);
+
+         response_packet.assert_time_report_packet(
+                                                   3,           // SEQ NUM
+                                                   {DST1,SRC1}, // FLOWID
+                                                   'd8451,         // TIMESTAMP
+                                                   'd8000,      // TIMESTAMP MIN
+                                                   'd9000,      // TIMESTAMP MAX
+                                                   1            // VERBOSE
+                                                   );
+
+         `INFO("change_period_on_the_fly: Good Response");
 
          repeat(100) @(posedge clk);
          disable watchdog_thread;
