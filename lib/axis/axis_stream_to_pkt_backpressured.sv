@@ -45,7 +45,9 @@ module axis_stream_to_pkt_backpressured
     // Width of IQ samples from Datapath. If <16b then samples MSB justified into packets.
     parameter IQ_WIDTH=16,
     // Width of time_per_pkt CSR field
-    parameter TIME_PER_PKT_WIDTH=16
+    parameter TIME_PER_PKT_WIDTH=16,
+    // USE ULTRA RAM for FIFO implementation
+    parameter bit USE_ULTRA=0
     )
 
    (
@@ -256,7 +258,8 @@ module axis_stream_to_pkt_backpressured
    axis_fifo
      #(
        .WIDTH(64+14+1),
-       .SIZE(TIME_FIFO_SIZE) // Minimal, just need space for header metadata, 1 FIFO line per buffered packet.
+       .SIZE(TIME_FIFO_SIZE), // Minimal, just need space for header metadata, 1 FIFO line per buffered packet.
+       .ULTRA(USE_ULTRA)
        )
    time_fifo
      (
@@ -319,7 +322,8 @@ module axis_stream_to_pkt_backpressured
 
    axis_fifo
      #(.WIDTH((IQ_WIDTH*4)+1),
-       .SIZE(SAMPLE_FIFO_SIZE))
+       .SIZE(SAMPLE_FIFO_SIZE),
+       .ULTRA(USE_ULTRA))
    sample_fifo
      (
       .clk(clk),
@@ -554,7 +558,8 @@ module axis_stream_to_pkt_backpressured
 
    axis_fifo_wrapper
      #(
-       .SIZE(PACKET_FIFO_SIZE)
+       .SIZE(PACKET_FIFO_SIZE),
+       .ULTRA(USE_ULTRA)
        )
    packet_fifo
      (

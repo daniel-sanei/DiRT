@@ -20,7 +20,8 @@ module dsp_rx
     parameter RX_SAMPLE_FIFO_SIZE = 12,  // Default from axis_stream_to_pkt_wrapper
     parameter RX_PACKET_FIFO_SIZE = 9,  // Default from axis_stream_to_pkt_wrapper
     parameter IQ_WIDTH = 16,  // Default from axis_stream_to_pkt_wrapper
-    parameter TIME_PER_PKT_WIDTH=16  // Default from axis_stream_to_pkt_wrapper
+    parameter TIME_PER_PKT_WIDTH = 16,  // Default from axis_stream_to_pkt_wrapper
+    parameter bit USE_ULTRA = 0  // USE ULTRA RAM for FIFO implementation
     )
    (
     input logic        clk,
@@ -68,7 +69,8 @@ module dsp_rx
        .SAMPLE_FIFO_SIZE(RX_SAMPLE_FIFO_SIZE),
        .PACKET_FIFO_SIZE(RX_PACKET_FIFO_SIZE),
        .IQ_WIDTH(IQ_WIDTH),
-       .TIME_PER_PKT_WIDTH(TIME_PER_PKT_WIDTH)
+       .TIME_PER_PKT_WIDTH(TIME_PER_PKT_WIDTH),
+       .USE_ULTRA(USE_ULTRA)
        )
    axis_stream_to_pkt_backpressured_i0
      (

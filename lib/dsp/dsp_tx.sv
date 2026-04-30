@@ -18,7 +18,8 @@ module dsp_tx
   #(
     parameter TX_DATA_FIFO_SIZE = 12,  // Must be substantial for high TX rates and large MTU's
     parameter TX_STATUS_FIFO_SIZE = 5, // Default to SRL32 implementation
-    parameter IQ_WIDTH = 16  // Default from axis_stream_to_pkt_wrapper
+    parameter IQ_WIDTH = 16,  // Default from axis_stream_to_pkt_wrapper
+    parameter bit USE_ULTRA = 0  // USE ULTRA RAM for FIFO implementation
     )
    (
     input wire          clk,
@@ -74,7 +75,8 @@ module dsp_tx
    logic [TX_DATA_FIFO_SIZE:0] tx_data_buffer_fullness;
 
    axis_fifo_wrapper  #(
-                        .SIZE(TX_DATA_FIFO_SIZE)
+                        .SIZE(TX_DATA_FIFO_SIZE),
+                        .ULTRA(USE_ULTRA)
                          )
    axis_fifo_tx_buffer_i0 (
                            .clk(clk),
