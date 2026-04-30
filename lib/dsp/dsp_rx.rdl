@@ -30,6 +30,14 @@ regfile dsp_rx {
       sw=r;
       hw=w;
     } idle;
+    field {
+      sw=r;
+      hw=w;
+    } overflow;
+    field {
+      sw=rw;
+      hw=r;
+    } overflow_clear;
   } rx_status;
 
   reg {
