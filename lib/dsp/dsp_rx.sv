@@ -43,6 +43,10 @@ module dsp_rx
     input logic        csr_rx_abort,
     // Status Flags
     output logic       csr_stream_to_pkt_idle, // Assert when state machine is idle
+    // Overflow Flags
+    input  logic       csr_overflow_clear, // Assert to clear the overflow flag
+    output logic       csr_rx_overflow,
+    
     // System Time Output
     input logic [63:0] system_time,
     // RX sample Input Bus
@@ -53,6 +57,20 @@ module dsp_rx
 
    wire [63:0] probe ; // Debug
    wire        run;
+
+   
+   // Overflow detection
+   always_ff @(posedge clk) begin
+       if (rst) begin 
+           csr_rx_overflow <= 0;
+       end else if (csr_overflow_clear) begin
+           csr_rx_overflow <= 0;
+       end else if (csr_stream_to_pkt_enable) begin
+           csr_rx_overflow <= axis_rx_sample.tvalid && ~axis_rx_sample.tready;
+       end else begin 
+           csr_rx_overflow <= 0; // clear overflow if rx is disabled
+       end
+   end
 
    //-----------------------------------------------------------------------------
    //
