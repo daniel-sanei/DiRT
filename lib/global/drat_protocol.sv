@@ -52,6 +52,14 @@ typedef enum logic [7:0]
    INT16_COMPLEX_ASYNC=8'h20,
    // Integer complex numbers in a 16bit format. Timestamp unused. Marks end of burst.
    INT16_COMPLEX_ASYNC_EOB=8'h30,
+   // Integer complex numbers in a 16bit format for extended packet type.
+   INT16_COMPLEX_EXTENDED=8'h40,
+   // Integer complex numbers in a 16bit format for extended packet type. Marks end of burst.
+   INT16_COMPLEX_EXTENDED_EOB=8'h50,
+   // Integer complex numbers in a 16bit format for extended packet type. Timestamp unused.
+   INT16_COMPLEX_EXTENDED_ASYNC=8'h60,
+   // Integer complex numbers in a 16bit format for extended packet type. Timestamp unused. Marks end of burst.
+   INT16_COMPLEX_EXTENDED_ASYNC_EOB=8'h70,
    // Integer real numbers in a 16bit format. Used for example, for real valued sample data.
    INT16_REAL=8'h01,
    // Integer complex numbers in a 12bit (packed) format. Used for example for IQ sample data.
@@ -169,6 +177,17 @@ typedef struct packed
                   logic [63:0] timestamp;
                } pkt_header_t;
 
+// Full packet extended header definition
+typedef struct packed
+               {
+                  pkt_type_t packet_type;
+                  logic [7:0]  seq_id;
+                  logic [15:0] length;
+                  flow_id_t flow_id;
+                  logic [63:0] timestamp;
+                  logic [63:0] rx_mimo_metadata;
+               } pkt_header_extended_t;
+
 // Individual payload beat for INT16_COMPLEX_[EOB|ASYNC|ASYNC_EOB]
 typedef struct packed
                {
@@ -238,6 +257,18 @@ function logic [63:0] extract_timestamp (input pkt_header_t header);
    return {header.timestamp};
 endfunction : extract_timestamp
 
+function logic [63:0] extract_header_extended (input pkt_header_extended_t header);
+   return {header.packet_type, header.seq_id, header.length, header.flow_id};
+endfunction : extract_header_extended
+
+function logic [63:0] extract_timestamp_extended (input pkt_header_extended_t header);
+   return {header.timestamp};
+endfunction : extract_timestamp_extended
+
+function logic [63:0] extract_rx_mimo_extended (input pkt_header_extended_t header);
+   return {header.rx_mimo_metadata};
+endfunction : extract_rx_mimo_extended
+
 //-------------------------------------------------------------------------------
 //-- Given two vectors of bits (Beats of a packet), populate a header data structure.
 //-- returns pkt_header_t
@@ -254,6 +285,19 @@ function pkt_header_t populate_header (input logic [127:0] header_beats);
    return header;
 endfunction : populate_header
 
+function pkt_header_extended_t populate_header_extended (input logic [191:0] header_beats);
+   pkt_header_extended_t header;
+   header = '{
+              packet_type:pkt_type_t'(header_beats[191:184]),
+              seq_id:header_beats[183:176],
+              length:header_beats[175:160],
+              flow_id:header_beats[159:128],
+              timestamp:header_beats[127:64],
+              rx_mimo_metadata:header_beats[63:0]
+              };
+   return header;
+endfunction : populate_header_extended
+
 //-------------------------------------------------------------------------------
 //-- Given only the first beat of a packet, populate a header data structure.
 //-- returns pkt_header_t with timestamp = 0
@@ -261,6 +305,10 @@ endfunction : populate_header
 function pkt_header_t populate_header_no_timestamp (input logic [63:0] header_beat);
     return populate_header({header_beat, 64'b0});
 endfunction // populate_header_no_timestamp
+
+function pkt_header_extended_t populate_header_extended_no_timestamp (input logic [63:0] header_beat);
+    return populate_header_extended({header_beat, 64'b0, 64'b0});
+endfunction // populate_header_extended_no_timestamp
 
 //-------------------------------------------------------------------------------
 //-- Given a payload beat of an INT16_COMPLEX* packet, populate a payload beat structure
@@ -309,6 +357,26 @@ function logic header_compare(input pkt_header_t a, input pkt_header_t b);
           (a.timestamp == b.timestamp));
 endfunction : header_compare
 
+function logic header_extended_compare(input pkt_header_extended_t a, input pkt_header_extended_t b);
+  if (!((a.packet_type === b.packet_type) &&
+        (a.seq_id === b.seq_id) &&
+        (a.length === b.length) &&
+        (a.flow_id === b.flow_id) &&
+        (a.timestamp == b.timestamp) &&
+        (a.rx_mimo_metadata == b.rx_mimo_metadata))) begin
+     $display("Packet header field missmatch");
+     //print_header(a);
+     //print_header(b);
+  end
+
+  return ((a.packet_type === b.packet_type) &&
+          (a.seq_id === b.seq_id) &&
+          (a.length === b.length) &&
+          (a.flow_id === b.flow_id) &&
+          (a.timestamp == b.timestamp) &&
+          (a.rx_mimo_metadata == b.rx_mimo_metadata));
+endfunction : header_extended_compare
+
 //-------------------------------------------------------------------------------
 //-- Compare two payload arrays, return 1 if equal, 0 otherwise.
 //-------------------------------------------------------------------------------
@@ -341,6 +409,15 @@ function void print_header(input pkt_header_t header);
    $display("FlowID: %0d -> %0d", header.flow_id.flow_addr.flow_src,header.flow_id.flow_addr.flow_dst);
    $display("Time:   %0d", header.timestamp);
 endfunction : print_header
+
+function void print_header_extended(input pkt_header_extended_t header);
+   $display("Type:   %s", header.packet_type.name);
+   $display("SeqID:  %0d", header.seq_id);
+   $display("Length: %0d", header.length);
+   $display("FlowID: %0d -> %0d", header.flow_id.flow_addr.flow_src,header.flow_id.flow_addr.flow_dst);
+   $display("Time:   %0d", header.timestamp);
+   $display("RX MIMO Metadata: %0d", header.rx_mimo_metadata);
+endfunction : print_header_extended
 
 // Object to generate random payloads for packets.
 /* -----\/----- EXCLUDED -----\/-----
@@ -704,6 +781,289 @@ class DRaTPacket;
 
 endclass : DRaTPacket
 
+//
+// Extended DRaT Packet type with RX MIMO metadata.
+// Provides general packet manipulation and low level test functions.
+// Designed for inhertance to support specific packet formats.
+//
+class DRaTPacketExtended;
+   protected pkt_header_extended_t header;
+   protected pkt_payload_t payload;
+   local int next;
+   local logic [15:0] count;
+
+   // Provide explicit initialization
+   function new;
+      this.init;
+   endfunction : new
+
+   // Provide explicit initialization
+   function void init;
+      header.packet_type = INT16_COMPLEX_EXTENDED;
+      header.seq_id = 0;
+      header.length = 8; // Illegal as-is, needs non zero payload.
+      header.flow_id.flow_id = 0;
+      header.timestamp = 0;
+      header.rx_mimo_metadata = 0;
+   endfunction : init
+
+   // Return packet payload to minimal initialized state.
+   function void reset_payload(integer len=1);
+      this.payload=new[len];
+   endfunction : reset_payload
+
+   // Allocate payload beats from packet header size.
+   function void allocate_payload();
+      this.reset_payload(bytes_to_beats(this.header.length-24));
+   endfunction
+
+   // Set length of packet (in bytes)
+   function void set_length(shortint length);
+      this.header.length = length;
+   endfunction: set_length
+
+   // Returns confgured length of packet (in bytes)
+   function shortint get_length();
+      return(this.header.length);
+   endfunction : get_length
+
+   // Set sequence ID of packet
+   function void set_seq_id(bit [7:0] seq_id);
+      this.header.seq_id = seq_id;
+   endfunction: set_seq_id
+
+   // Returns sequence ID of packet
+   function bit [7:0] get_seq_id();
+      return(this.header.seq_id);
+   endfunction : get_seq_id
+
+   // Increment sequence ID of packet modulo 256
+   function void inc_seq_id();
+      this.header.seq_id =  this.header.seq_id + 8'd1;
+   endfunction : inc_seq_id
+
+   // Set the flow ID
+   function void set_flow_id(flow_id_t flow_id);
+      this.header.flow_id = flow_id;
+   endfunction : set_flow_id
+
+   // Get the flow ID
+   function flow_id_t get_flow_id();
+      return(this.header.flow_id);
+   endfunction : get_flow_id
+
+   // Set Source of this packet
+   function void set_flow_src(node_src_addr_t node_addr);
+      this.header.flow_id.flow_addr.flow_src = node_addr;
+   endfunction : set_flow_src
+
+   // Set Destination of this packet
+   function void set_flow_dst(node_dst_addr_t node_addr);
+      this.header.flow_id.flow_addr.flow_dst = node_addr;
+   endfunction : set_flow_dst
+
+   // Set Packet Type
+   function void set_packet_type(pkt_type_t packet_type);
+      this.header.packet_type = packet_type;
+   endfunction : set_packet_type
+
+   // Get Packet Type
+   function pkt_type_t get_packet_type();
+      return(this.header.packet_type);
+   endfunction : get_packet_type
+
+   // Set header field from raw bit vector
+   function void set_raw_header(bit [63:0] raw_header);
+      // Explicit cast required to override ENUM strong typing
+      this.header.packet_type = pkt_type_t'(raw_header[63:56]);
+      this.header.seq_id = raw_header[55:48];
+      this.header.length = raw_header[47:32];
+      this.header.flow_id = raw_header[31:0];
+   endfunction :set_raw_header
+
+   // Get first line of header as bit vector
+   function bit [63:0] get_raw_header();
+      return(extract_header_extended(this.header));
+   endfunction : get_raw_header
+
+   // Set Timestamp
+   function void set_timestamp(bit [63:0] timestamp);
+      this.header.timestamp = timestamp;
+   endfunction : set_timestamp
+
+   // Get second line of header as bit vector
+   function bit [63:0] get_timestamp();
+      return(extract_timestamp_extended(this.header));
+   endfunction : get_timestamp
+
+   // Get second line of header as bit vector
+   function void update_timestamp(bit [63:0] increment);
+      this.header.timestamp =  this.header.timestamp + increment;
+   endfunction : update_timestamp
+
+   // Set RX MIMO metadata
+   function void set_rx_mimo_metadata(bit [63:0] metadata);
+      this.header.rx_mimo_metadata = metadata;
+   endfunction
+
+   // Get RX MIMO metadata
+   function bit [63:0] get_rx_mimo_metadata();
+      return(this.header.rx_mimo_metadata);
+   endfunction
+
+   // Set entire header using packed structure
+   function void set_header(pkt_header_extended_t header);
+      this.header = header;
+   endfunction : set_header
+
+   // Return entire header as structure
+   function pkt_header_extended_t get_header();
+      return(this.header);
+   endfunction : get_header
+
+   // Return entire payload as array
+   function pkt_payload_t get_payload();
+      return(this.payload);
+   endfunction : get_payload
+
+   // Packets payload is already allocated.
+   // Add beat to packet using
+   // private index pointer
+   function void set_beat(bit [63:0] beat);
+      this.payload[next] = beat;
+      next = next + 1;
+   endfunction : set_beat
+
+   // Return next payload beat
+   function bit [63:0] get_beat();
+      next = next + 1;
+      return(this.payload[next-1]);
+   endfunction : get_beat
+
+   // Add a new beat to end of current payload.
+   // Adjust header to match and allocate extra storage.
+   // Assumes payload always has full beats. (length%8=0)
+   function void add_beat(bit [63:0] beat);
+      this.header.length = this.header.length + 8;
+      payload = new[bytes_to_beats(this.header.length-24)] (payload);
+      payload[(this.header.length-32)>>3] = beat;
+   endfunction : add_beat
+
+   // Add beat to end of packet without being protocol aware.
+   // Allocate additional storage.
+   // (i.e we don't look at or change the header)
+   function void add_beat_raw(bit [63:0] beat);
+      payload = new[this.payload.size()+1] (payload);
+      payload[this.payload.size()-1] = beat;
+   endfunction : add_beat_raw
+
+   // Reset payload pointer back to start.
+   function void rewind_payload();
+      next = 0;
+   endfunction : rewind_payload
+
+   // Get status field from STATUS packet
+   function status_type_t get_status_type();
+      return(this.payload[0].status_beat.status_type);
+   endfunction : get_status_type
+
+   // Get actual SeqID field from STATUS packet payload
+   function bit [7:0] get_status_seq_id();
+      return(this.payload[0].status_beat.seq_id);
+   endfunction : get_status_seq_id
+
+   // Get status field from SPI_RESPONSE packet
+   function spi_status_t get_spi_status();
+      return(this.payload[0].spi_command_beat.spi_status);
+   endfunction : get_spi_status
+
+   // Get expected SeqID field from SPI_RESPONSE packet payload
+   function bit [7:0] get_spi_expected_seq_id();
+      return(this.payload[0].spi_command_beat.expected_seq_id);
+   endfunction : get_spi_expected_seq_id
+
+   // Get received SeqID field from SPI_RESPONSE packet payload
+   function bit [7:0] get_spi_received_seq_id();
+      return(this.payload[0].spi_command_beat.received_seq_id);
+   endfunction : get_spi_received_seq_id
+
+  // Populate a payload beat of type spi_command_beat_t for use in SPI_COMMAND* packets
+   task set_spi_command;
+      input logic read_not_write;
+      input logic [14:0] address;
+      input logic [7:0] data;
+      payload[0].spi_command_beat.read_not_write = read_not_write;
+      payload[0].spi_command_beat.address = address;
+      payload[0].spi_command_beat.data = data; // Even if its a read, populate this with user supplied data for testing
+   endtask // set_spi_command
+
+   // Generate a random payload of length determined by header
+   // (Note size in header is in bytes and includes the header.
+   function void random();
+      payload = new[bytes_to_beats(this.header.length-24)];
+      foreach (payload [i])
+        payload[i] = {$random,$random};
+   endfunction : random
+
+   // Generate a 16bit ramp inside payload of length determined by header
+   // (Note size in header is in bytes and includes the header.
+   // Last beat will always have ramp data in all 16bit fields even if packet is shorter.
+   // I & Q have same data.
+   function void ramp(logic reset_count=1);
+      payload = new[bytes_to_beats(this.header.length-24)];
+      if (reset_count) begin
+          count = 0;
+      end
+      foreach (payload [i]) begin
+         payload[i] = count << 48 |
+                      (count+1) << 32 |
+                      (count+2) << 16 |
+                      (count+3);
+         count = count + 4;
+      end
+   endfunction : ramp
+
+   // Interfaces passed as args to tasks and functions must be virtual:
+   // ieee 1800-2017: 25.9 "Virtual Interfaces"
+   task copy_to_pkt(virtual interface pkt_stream_extended_t axis_bus);
+
+      logic [63:0] tdata;
+      logic        tlast;
+
+      axis_bus.pull_beat(tdata,tlast);
+      `FAIL_UNLESS_EQUAL(tlast,0);
+      this.set_raw_header(tdata);
+      axis_bus.pull_beat(tdata,tlast);
+      // `FAIL_UNLESS_EQUAL(tlast,0); // Commented this line to support TIME_REPORT
+      this.set_timestamp(tdata);
+      axis_bus.pull_beat(tdata,tlast);
+      this.set_rx_mimo_metadata(tdata);
+      payload = new[bytes_to_beats(this.header.length-24)];
+      // Assert on tlast is done one pass in arrears so that we can check for tlast==1
+      // once foreach quits.
+      foreach (payload [i]) begin
+         `FAIL_UNLESS_EQUAL(tlast, 0);
+         axis_bus.pull_beat(tdata,tlast);
+         payload[i] = tdata;
+      end
+      `FAIL_UNLESS_EQUAL (tlast, 1);
+   endtask : copy_to_pkt
+
+   function bit is_same(DRaTPacketExtended test_packet, bit use_assertion=1);
+        if (use_assertion) begin
+           assert(header_extended_compare(this.header,test_packet.get_header()));
+           assert(payload_compare(this.payload,test_packet.get_payload()));
+           return(1); // Should not get here if assert triggered
+        end else begin
+           //if (!header_compare(this.header,test_packet.get_header())) $display("Header compare failed.");
+           //if (!payload_compare(this.payload,test_packet.get_payload())) $display("Payload compare failed.");
+           return(header_extended_compare(this.header,test_packet.get_header()) &&
+                  payload_compare(this.payload,test_packet.get_payload()));
+        end
+    endfunction: is_same
+
+endclass : DRaTPacketExtended
+
 endpackage
 
 
@@ -796,4 +1156,99 @@ interface pkt_stream_t (input clk);
 
 
 endinterface // pkt_stream_t
+
+//-------------------------------------------------------------------------------
+//-- Inherit basic AXIS interface into extended packet aware interface
+//-------------------------------------------------------------------------------
+interface pkt_stream_extended_t (input clk);
+   import drat_protocol::*;
+   axis_t #(.WIDTH(64)) axis (.clk(clk));
+
+
+   //
+   // Push Header onto packet stream
+   //
+   task automatic push_header;
+      input pkt_header_extended_t header;
+      axis.write_beat(extract_header_extended(header),0);
+      axis.write_beat(extract_timestamp_extended(header),0);
+      axis.write_beat(extract_rx_mimo_extended(header),0);
+   endtask : push_header
+
+   //
+   // Push data beat onto packet stream
+   //
+   task automatic push_payload;
+      input logic [63:0] beat;
+      input logic        last;
+      axis.write_beat(beat,last);
+   endtask : push_payload
+
+   //
+   // Push idle cycle
+   //
+   task automatic push_idle;
+      axis.idle_master;
+   endtask : push_idle
+
+   //
+   // Pop Beat off a stream
+   //
+   task automatic pull_beat;
+      output logic [63:0] beat;
+      output logic        last;
+      axis.read_beat(beat,last);
+   endtask : pull_beat
+
+    //
+    // Push full DRaT packet onto Packet bus.
+    //
+    task automatic push_pkt;
+        ref DRaTPacketExtended packet;
+        axis.write_beat(packet.get_raw_header(),0);
+        axis.write_beat(packet.get_timestamp(),0);
+        axis.write_beat(packet.get_rx_mimo_metadata(),0);
+        packet.rewind_payload();
+        // Subtract 2 beats for omitted header (and 1 for tlast cycle which comes after loop, and 1 for extended RX MIMO metadata)
+        for (integer i=0; i < (bytes_to_beats(packet.get_length()) - 4); i++) begin
+            axis.write_beat(packet.get_beat(),0);
+        end
+        axis.write_beat(packet.get_beat(),1);
+    endtask : push_pkt
+
+    //
+    // Pop full DRaT packet off a packet bus
+    //
+    task automatic pop_pkt;
+        ref DRaTPacketExtended packet;
+        logic [63:0] beat;
+        logic        last;
+
+        axis.read_beat(beat,last);
+        assert(last===1'b0);
+        packet.set_raw_header(beat);
+        axis.read_beat(beat,last);
+        assert(last===1'b0);
+        packet.set_timestamp(beat);
+        axis.read_beat(beat,last);
+        assert(last===1'b0);
+        packet.set_rx_mimo_metadata(beat);
+        packet.reset_payload(bytes_to_beats(packet.get_length()-24));
+        packet.rewind_payload();
+        // Subtract 2 beats for omitted header (and 1 for tlast cycle which comes after loop, and 1 for extended RX MIMO metadata)
+        for (integer i=0; i < (bytes_to_beats(packet.get_length()) - 4); i++) begin
+            axis.read_beat(beat,last);
+            packet.set_beat(beat);
+            assert(last===1'b0)
+                begin end else $error("TLAST in unexpected state %d on beat %d with packet lenth %d ",last,i,packet.get_length());
+
+        end
+        axis.read_beat(beat,last);
+        packet.set_beat(beat);
+        assert(last===1'b1);
+    endtask // pop_pkt
+
+
+endinterface // pkt_stream_extended_t
+
 `endif //  `ifndef _DRAT_PROTOCOL_SV_
