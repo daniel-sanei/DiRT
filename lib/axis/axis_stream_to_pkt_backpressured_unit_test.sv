@@ -14,13 +14,13 @@
 `include "drat_protocol.sv"
 
 module axis_stream_to_pkt_backpressured_unit_test;
+   timeunit 1ns;
+   timeprecision 1ps;
+   
    import drat_protocol::*;
    import svunit_pkg::svunit_testcase;
    string name = "axis_stream_to_pkt_ut";
    svunit_testcase svunit_ut;
-
-   timeunit 1ns;
-   timeprecision 1ps;
 
    localparam SIZE_STIM=10;
    localparam SIZE_RESP=11;

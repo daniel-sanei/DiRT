@@ -642,7 +642,7 @@ module axis_stream_to_pkt_extended_backpressured_regression_unit_test;
    `SVTEST_END
 
    //-------------------------------------------------------------------------------
-   // --MIXED FULL PACKETS--
+   // --MIXED FULL PACKETS (EXTENDED FIRST)--
    // Stream one burst containing three full-size packets with mixed formats.
    // No input throttling.
    //
@@ -1410,6 +1410,151 @@ module axis_stream_to_pkt_extended_backpressured_regression_unit_test;
             // Watchdog kills simulation if any test case fails to decisively PASS or FAIL.
             begin : watchdog_thread
                timeout = 100000;
+               while (1) begin
+                  `FAIL_IF(timeout == 0);
+                  timeout--;
+                  @(negedge clk);
+               end
+            end
+         join
+      `SVTEST_END
+
+      //-------------------------------------------------------------------------------
+      // -- ONE SAMPLE LEGACY PACKET --
+      // Exercises packet_size=1 / burst_size=1 corner case.
+      //-------------------------------------------------------------------------------
+      `SVTEST(single_sample_legacy)
+         logic [31:0] sample;
+         logic [63:0] expected [0:2], observed [0:2];
+         logic expected_tlast [0:2], observed_tlast [0:2];
+
+         `INFO("One-sample legacy EOB packet");
+
+         sample = 32'hDEAD_0001;
+
+         // 16 byte legacy header + 4 byte sample = 20 bytes
+         expected[0] = {INT16_COMPLEX_EOB, 8'h00, 16'd20, {SRC0,DST0}};
+         expected[1] = 64'd1000;
+         // Odd final sample is duplicated into the 64-bit sample beat
+         expected[2] = {sample, sample};
+
+         expected_tlast[0] = 1'b0;
+         expected_tlast[1] = 1'b0;
+         expected_tlast[2] = 1'b1;
+
+         enable <= 0;
+         start_time <= 1000;
+         packet_size <= 1;
+         flow_id <= {SRC0,DST0};
+         time_per_pkt <= 10;
+         burst_size <= 1;
+         has_metadata <= 0;
+         rx_mimo_metadata <= '0;
+         abort <= 0;
+         ready_to_test <= 0;
+         enable_stimulus <= 0;
+
+         fork
+            begin : load_stimulus
+               axis_stimulus_pre.write_beat(sample, 1'b0);
+
+               @(negedge clk);
+               enable <= 1;
+               @(negedge clk);
+               enable_stimulus <= 1;
+               ready_to_test <= 1;
+            end
+
+            begin : read_response
+               while (!ready_to_test) @(posedge clk);
+
+               for (int i = 0; i < 3; i++) begin
+                  axis_response_post.axis.read_beat(
+                     observed[i], observed_tlast[i]);
+
+                  `FAIL_UNLESS_EQUAL(observed[i], expected[i]);
+                  `FAIL_UNLESS_EQUAL(observed_tlast[i], expected_tlast[i]);
+               end
+
+               disable watchdog_thread;
+            end
+
+            begin : watchdog_thread
+               timeout = 10000;
+               while (1) begin
+                  `FAIL_IF(timeout == 0);
+                  timeout--;
+                  @(negedge clk);
+               end
+            end
+         join
+      `SVTEST_END
+
+
+      //-------------------------------------------------------------------------------
+      // -- ONE SAMPLE EXTENDED PACKET --
+      // Exercises snapshot + same-cycle FIFO write corner case.
+      //-------------------------------------------------------------------------------
+      `SVTEST(single_sample_extended)
+         logic [31:0] sample;
+         logic [63:0] expected [0:3], observed [0:3];
+         logic expected_tlast [0:3], observed_tlast [0:3];
+
+         `INFO("One-sample extended EOB packet");
+
+         sample = 32'hBEEF_0001;
+
+         // 24 byte extended header + 4 byte sample = 28 bytes
+         expected[0] = {INT16_COMPLEX_EXTENDED_EOB, 8'h00, 16'd28,
+                        {SRC0,DST0}};
+         expected[1] = 64'd1000;
+         expected[2] = TEST_RXMIMO_METADATA;
+         expected[3] = {sample, sample};
+
+         expected_tlast[0] = 1'b0;
+         expected_tlast[1] = 1'b0;
+         expected_tlast[2] = 1'b0;
+         expected_tlast[3] = 1'b1;
+
+         enable <= 0;
+         start_time <= 1000;
+         packet_size <= 1;
+         flow_id <= {SRC0,DST0};
+         time_per_pkt <= 10;
+         burst_size <= 1;
+         has_metadata <= 1;
+         rx_mimo_metadata <= TEST_RXMIMO_METADATA;
+         abort <= 0;
+         ready_to_test <= 0;
+         enable_stimulus <= 0;
+
+         fork
+            begin : load_stimulus
+               axis_stimulus_pre.write_beat(sample, 1'b0);
+
+               @(negedge clk);
+               enable <= 1;
+               @(negedge clk);
+               enable_stimulus <= 1;
+               ready_to_test <= 1;
+            end
+
+            begin : read_response
+               while (!ready_to_test) @(posedge clk);
+
+               for (int i = 0; i < 4; i++) begin
+                  axis_response_post.axis.read_beat(
+                     observed[i], observed_tlast[i]);
+
+                  `FAIL_UNLESS_EQUAL(observed[i], expected[i]);
+                  `FAIL_UNLESS_EQUAL(observed_tlast[i], expected_tlast[i]);
+               end
+
+               disable watchdog_thread;
+            end
+
+            begin : watchdog_thread
+               timeout = 10000;
                while (1) begin
                   `FAIL_IF(timeout == 0);
                   timeout--;

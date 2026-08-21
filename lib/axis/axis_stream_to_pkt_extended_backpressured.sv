@@ -78,6 +78,9 @@ module axis_stream_to_pkt_extended_backpressured
 
    import drat_protocol::*;
 
+   logic packet_has_metadata;
+   logic [63:0] packet_rx_mimo_metadata;
+   
    logic tfifo_has_metadata;
 
 
@@ -231,6 +234,8 @@ module axis_stream_to_pkt_extended_backpressured
    // is placed into the sample_fifo.
    // This ensures that we have all the packet body already buffered in a high speed FIFO ready
    // to burst at wire rate downstream.
+   // 
+   // Additionally, buffer snapshots of RX MIMO control signal and metadata.
    //
    //-----------------------------------------------------------------------------
    logic [63:0]           packet_time;
@@ -238,21 +243,27 @@ module axis_stream_to_pkt_extended_backpressured
    always_ff @(posedge clk)
      if (rst) begin
         packet_time <= 64'h0;
+        packet_has_metadata <= 1'b0;
+        packet_rx_mimo_metadata <= 64'd0;
      end else if ((input_state==S_INPUT_IDLE) && (burst_state == S_NEW_BURST) && ingress_beat) begin
         // Start of first packet in a new burst.
         packet_time <= start_time;
+        packet_has_metadata <= has_metadata;
+        packet_rx_mimo_metadata <= rx_mimo_metadata;
      end else if ((input_state==S_INPUT_IDLE) && ingress_beat) begin
         // Start of new packet within burst, add per packet time increment.
         // Note that the only time packets are not of length "packet_size"
         // is for an EOB packet or an Async abort (i.e) the last packet
         // So we never have to calculate a custom sized packet time increment.
         packet_time <= packet_time + time_per_pkt;
+        packet_has_metadata <= has_metadata;
+        packet_rx_mimo_metadata <= rx_mimo_metadata;
      end
 
    // Packet size calculation in 32b samples.
    logic [13:0]           input_count_plus_header;
    always_comb begin
-      input_count_plus_header = input_count + (has_metadata ? 14'd6 : 14'd4);
+      input_count_plus_header = input_count + (packet_has_metadata ? 14'd6 : 14'd4);
    end
 
    // 64bits for time, 64 bits for RX MIMO metadata, 14 bits for size in 32b words, 1bit for EOB flag
@@ -281,7 +292,7 @@ module axis_stream_to_pkt_extended_backpressured
       // (Control plane needs to constrain valid range of input count so it
       // can't overflow here, though in practice real systems will uses packet sizes
       // many orders of magnitude smaller than this limit)
-      .in_tdata({has_metadata, end_of_burst,input_count_plus_header,packet_time,rx_mimo_metadata}),
+      .in_tdata({packet_has_metadata, end_of_burst,input_count_plus_header,packet_time,packet_rx_mimo_metadata}),
       // If upstream can advance by one beat and we have reach the threshold size for a packet
       // TODO: Will need hooks here for burst end or abort
       .in_tvalid(end_of_packet && ingress_beat && enable),
