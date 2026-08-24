@@ -260,10 +260,28 @@ module axis_stream_to_pkt_extended_backpressured
         packet_rx_mimo_metadata <= rx_mimo_metadata;
      end
 
+   // FIFO input bypass for single-sample packet
+   logic [63:0] bypass_packet_time;
+   logic bypass_packet_has_metadata;
+   logic [63:0] bypass_packet_rx_mimo_metadata;
+
+   always_comb begin
+      bypass_packet_time = packet_time;
+      bypass_packet_has_metadata = packet_has_metadata;
+      bypass_packet_rx_mimo_metadata = packet_rx_mimo_metadata;
+
+      if ((input_state==S_INPUT_IDLE) && ingress_beat) begin
+         bypass_packet_time = (burst_state == S_NEW_BURST) ? start_time : packet_time + time_per_pkt;
+         bypass_packet_has_metadata = has_metadata;
+         bypass_packet_rx_mimo_metadata = rx_mimo_metadata;
+      end
+   end
+
+
    // Packet size calculation in 32b samples.
    logic [13:0]           input_count_plus_header;
    always_comb begin
-      input_count_plus_header = input_count + (packet_has_metadata ? 14'd6 : 14'd4);
+      input_count_plus_header = input_count + (bypass_packet_has_metadata ? 14'd6 : 14'd4);
    end
 
    // 64bits for time, 64 bits for RX MIMO metadata, 14 bits for size in 32b words, 1bit for EOB flag
@@ -292,7 +310,7 @@ module axis_stream_to_pkt_extended_backpressured
       // (Control plane needs to constrain valid range of input count so it
       // can't overflow here, though in practice real systems will uses packet sizes
       // many orders of magnitude smaller than this limit)
-      .in_tdata({packet_has_metadata, end_of_burst,input_count_plus_header,packet_time,packet_rx_mimo_metadata}),
+      .in_tdata({bypass_packet_has_metadata, end_of_burst,input_count_plus_header,bypass_packet_time,bypass_packet_rx_mimo_metadata}),
       // If upstream can advance by one beat and we have reach the threshold size for a packet
       // TODO: Will need hooks here for burst end or abort
       .in_tvalid(end_of_packet && ingress_beat && enable),
