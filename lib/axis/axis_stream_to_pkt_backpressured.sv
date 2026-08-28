@@ -1,5 +1,5 @@
 //----------------------------------------------------------------------------
-// File:    axis_stream_to_pkt_extended_backpressured.sv
+// File:    axis_stream_to_pkt_backpressured.sv
 //
 // Author:  Ian Buckley, Ion Concepts LLC.
 // 
