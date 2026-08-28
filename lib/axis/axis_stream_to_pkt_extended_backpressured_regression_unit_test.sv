@@ -120,7 +120,7 @@ module axis_stream_to_pkt_extended_backpressured_regression_unit_test;
    // running the Unit Tests on
    //===================================
 
-   axis_stream_to_pkt_extended_backpressured
+   axis_stream_to_pkt_backpressured
      #(
        .TIME_FIFO_SIZE(4),
        .SAMPLE_FIFO_SIZE(13),

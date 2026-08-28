@@ -13,7 +13,7 @@
 `include "svunit_defines.svh"
 `include "drat_protocol.sv"
 
-`include "axis_stream_to_pkt_extended_backpressured.sv"
+`include "axis_stream_to_pkt_backpressured.sv"
 
 module axis_stream_to_pkt_extended_backpressured_unit_test;
    timeunit 1ns;
@@ -86,7 +86,7 @@ module axis_stream_to_pkt_extended_backpressured_unit_test;
    //=========================================================================
    // Instantiate DUT
    //=========================================================================
-   axis_stream_to_pkt_extended_backpressured
+   axis_stream_to_pkt_backpressured
      #(
        .TIME_FIFO_SIZE(TIME_FIFO_SIZE),
        .SAMPLE_FIFO_SIZE(SAMPLE_FIFO_SIZE),
