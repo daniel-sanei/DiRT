@@ -1,9 +1,7 @@
 //----------------------------------------------------------------------------
-// File:    axis_stream_to_pkt_extended_backpressured.sv
+// File:    axis_stream_to_pkt_backpressured.sv
 //
 // Author:  Ian Buckley, Ion Concepts LLC.
-// 
-// Edited by: Daniel Sanei, FPGA Engineer
 //
 // Parameterizable:
 // * Depth of Timestamp FIFO
@@ -12,7 +10,7 @@
 // * Width if I/Q samples
 //
 // Description:
-// Take IQ samples from a streaming datapath and packetize them using extended DRaT.
+// Take IQ samples from a streaming datapath and packetize them using DRaT.
 // Hard code to 16bit IQ format packets for now.
 // Add timestamp to each packet for first sample. Time stamp comes from external free running counter.
 //
@@ -20,15 +18,14 @@
 // If packetization is not enabled they are then dropped on the floor, but never buffered.
 // Once packetization is enabled, the next clock edge with a valid sample triggers both:
 // 1) (Lossless) Buffering of this and subsequent samples (until packetization is again dissabled)
-// 2) Snapshot of RX MIMO metadata and timestamp into frozen_time. (Timestamp is time value for 
-// first sample in the packet we are now framing).
+// 2) Snapshot of timestamp into frozen_time. (Timestamp is time value for first sample in
+// the packet we are now framing).
 // Each time packet payload size threshold reached grab new snapshot of timestamp.
 //
 // Output State Machine:
 // Wait for valid time on FIFO output (and occupancy of sample FIFO to exceed packet_size?)
 // Push 1st header line onto output FIFO including: type/size/flowID/SeqID
 // Push 2nd header line onto output FIFO including: timestamp
-// Push 3rd header line onto output FIFO including: rx mimo metadata
 // Push samples onto output FIFO whilst counting packet_size.
 // When packet_size is reached, set tlast into output FIFO with last samples.
 // Go back to starting state.
@@ -63,8 +60,6 @@ module axis_stream_to_pkt_backpressured
     input logic [31:0] flow_id, // DRaT Flow ID for this flow (union of src + dst)
     input logic [TIME_PER_PKT_WIDTH-1:0] time_per_pkt, // Time increment per packet of size packet_size
     input logic [47:0] burst_size, // Number of samples in a burst. Write to zero for infinite burst.
-    input logic has_metadata, // Checks if packet contains metadata (control logic for legacy vs. extended packets)
-    input logic [63:0] rx_mimo_metadata, // Contains peak detect (timestamp), fractional delay estimate, phase estimate.
     input logic        abort, // Assert this signal for a single cycle to trigger an async return to idle.
     // Status Flags
     output logic       idle, // Assert when state machine is idle
@@ -78,22 +73,17 @@ module axis_stream_to_pkt_backpressured
 
    import drat_protocol::*;
 
-   logic tfifo_has_metadata;
-
-
-   // Hardcode all packets as synchronous extended DRaT 16bit IQ type for now.
+   // Hardcode all packets as synchronous DRaT 16bit IQ type for now.
    // but the hooks are here to extend this to other packet types.
    pkt_type_t   packet_type, packet_type_eob;
-   assign packet_type = tfifo_has_metadata ? INT16_COMPLEX_EXTENDED : INT16_COMPLEX;
-   assign packet_type_eob = tfifo_has_metadata ? INT16_COMPLEX_EXTENDED_EOB : INT16_COMPLEX_EOB;
+   assign packet_type = INT16_COMPLEX;
+   assign packet_type_eob = INT16_COMPLEX_EOB;
 
    // Widely used boolean expressions
    logic               end_of_packet;
-   logic [13:0]        input_count; // Counting in 32bit INT16_COMPLEX_EXTENDED
+   logic [13:0]        input_count; // Counting in 32bit INT16_COMPLEX
    logic               end_of_burst;
    logic [47:0]        burst_count;
-
-
 
    always_comb begin
       // The second condition ensures that the last packet in a burst is
@@ -231,75 +221,43 @@ module axis_stream_to_pkt_backpressured
    // is placed into the sample_fifo.
    // This ensures that we have all the packet body already buffered in a high speed FIFO ready
    // to burst at wire rate downstream.
-   // 
-   // Additionally, buffer snapshots of RX MIMO control signal and metadata.
    //
    //-----------------------------------------------------------------------------
    logic [63:0]           packet_time;
-   
-   logic packet_has_metadata;
-   logic [63:0] packet_rx_mimo_metadata;
 
    always_ff @(posedge clk)
      if (rst) begin
         packet_time <= 64'h0;
-        packet_has_metadata <= 1'b0;
-        packet_rx_mimo_metadata <= 64'd0;
      end else if ((input_state==S_INPUT_IDLE) && (burst_state == S_NEW_BURST) && ingress_beat) begin
         // Start of first packet in a new burst.
         packet_time <= start_time;
-        packet_has_metadata <= has_metadata;
-        packet_rx_mimo_metadata <= rx_mimo_metadata;
      end else if ((input_state==S_INPUT_IDLE) && ingress_beat) begin
         // Start of new packet within burst, add per packet time increment.
         // Note that the only time packets are not of length "packet_size"
         // is for an EOB packet or an Async abort (i.e) the last packet
         // So we never have to calculate a custom sized packet time increment.
         packet_time <= packet_time + time_per_pkt;
-        packet_has_metadata <= has_metadata;
-        packet_rx_mimo_metadata <= rx_mimo_metadata;
      end
-
-
-   // FIFO input bypass for single-sample packet
-   logic [63:0] bypass_packet_time;
-   logic bypass_packet_has_metadata;
-   logic [63:0] bypass_packet_rx_mimo_metadata;
-
-   always_comb begin
-      bypass_packet_time = packet_time;
-      bypass_packet_has_metadata = packet_has_metadata;
-      bypass_packet_rx_mimo_metadata = packet_rx_mimo_metadata;
-
-      if ((input_state==S_INPUT_IDLE) && ingress_beat) begin
-         bypass_packet_time = (burst_state == S_NEW_BURST) ? start_time : packet_time + time_per_pkt;
-         bypass_packet_has_metadata = has_metadata;
-         bypass_packet_rx_mimo_metadata = rx_mimo_metadata;
-      end
-   end
-
 
    // Packet size calculation in 32b samples.
    logic [13:0]           input_count_plus_header;
    always_comb begin
-      input_count_plus_header = input_count + (bypass_packet_has_metadata ? 14'd6 : 14'd4);
+      input_count_plus_header = input_count+14'd4;
    end
 
-   // 64bits for time, 64 bits for RX MIMO metadata, 14 bits for size in 32b words, 1bit for EOB flag
-   wire [(64+64+14+1+1-1):0]    tfifo_tdata;
-   wire                       tfifo_tvalid;
-   logic                      tfifo_tready;
+   // 64bits for time, 14 bits for size in 32b words, 1bit for EOB flag
+   wire [(64+14+1-1):0]   tfifo_tdata;
+   wire                   tfifo_tvalid;
+   logic                  tfifo_tready;
 
    // Used to hold the FIFOs in reset when output_state == S_FIFO_RESET. A
    // register is used instead of a combinational output_state == S_FIFO_RESET
    // comparison to improve timing closure.
    logic                  fifos_reset;
 
-   assign tfifo_has_metadata = tfifo_tdata[143];
-
    axis_fifo
      #(
-       .WIDTH(64+64+14+1+1),
+       .WIDTH(64+14+1),
        .SIZE(TIME_FIFO_SIZE), // Minimal, just need space for header metadata, 1 FIFO line per buffered packet.
        .ULTRA(USE_ULTRA)
        )
@@ -311,7 +269,7 @@ module axis_stream_to_pkt_backpressured
       // (Control plane needs to constrain valid range of input count so it
       // can't overflow here, though in practice real systems will uses packet sizes
       // many orders of magnitude smaller than this limit)
-      .in_tdata({bypass_packet_has_metadata, end_of_burst,input_count_plus_header,bypass_packet_time,bypass_packet_rx_mimo_metadata}),
+      .in_tdata({end_of_burst,input_count_plus_header,packet_time}),
       // If upstream can advance by one beat and we have reach the threshold size for a packet
       // TODO: Will need hooks here for burst end or abort
       .in_tvalid(end_of_packet && ingress_beat && enable),
@@ -423,7 +381,6 @@ module axis_stream_to_pkt_backpressured
    enum                      {
                               S_OUTPUT_HEADER,
                               S_OUTPUT_TIME,
-                              S_OUTPUT_METADATA,
                               S_OUTPUT_SAMPLES,
                               S_FIFO_RESET
                               }  output_state;
@@ -456,19 +413,9 @@ module axis_stream_to_pkt_backpressured
            //
            S_OUTPUT_TIME: begin
               if (tfifo_tvalid && axis_pfifo.tready)
-                output_state <= tfifo_has_metadata ? S_OUTPUT_METADATA : S_OUTPUT_SAMPLES;
-              else
-                output_state <= S_OUTPUT_TIME;
-           end
-           //
-           // Same header entry should still show valid on tfifo, transition
-           // to next state if room in output fifo for RX MIMO metadata field this cycle
-           //
-           S_OUTPUT_METADATA: begin
-              if (tfifo_tvalid && axis_pfifo.tready)
                 output_state <= S_OUTPUT_SAMPLES;
               else
-                output_state <= S_OUTPUT_METADATA;
+                output_state <= S_OUTPUT_TIME;
            end
            //
            // Transition back to look for new header when we hit
@@ -517,7 +464,7 @@ module axis_stream_to_pkt_backpressured
        seq_id <= 0;
      else if (!enable)
        seq_id <= 0;
-     else if (output_state == S_OUTPUT_HEADER && tfifo_tdata[142]
+     else if (output_state == S_OUTPUT_HEADER && tfifo_tdata[78]
               && axis_pfifo.tvalid && axis_pfifo.tready)
        // seq_id must be reset to zero at the beginning of each burst. Reset
        // seq_id as soon as the packet_fifo consumes the header for the EOB
@@ -538,8 +485,6 @@ module axis_stream_to_pkt_backpressured
    // | Type  | SEQID |      Size     |           Flow ID             |
    // =================================================================
    // |                     Time                                      |
-   // =================================================================
-   // |                    RX MIMO Metadata                           |
    // =================================================================
    // |      I0       |       Q0      |      I1       |      Q1       |
    // =================================================================
@@ -569,20 +514,13 @@ module axis_stream_to_pkt_backpressured
    always_comb
      case(output_state)
        S_OUTPUT_HEADER: begin
-          axis_pfifo.tdata = {(tfifo_tdata[142] ? packet_type_eob : packet_type),seq_id,tfifo_tdata[141:128],2'b00,flow_id};
+          axis_pfifo.tdata = {(tfifo_tdata[78] ? packet_type_eob : packet_type),seq_id,tfifo_tdata[77:64],2'b00,flow_id};
           axis_pfifo.tvalid = tfifo_tvalid ;
           axis_pfifo.tlast = 1'b0;
           tfifo_tready = 1'b0;
           sfifo_tready = 1'b0;
        end
        S_OUTPUT_TIME: begin
-          axis_pfifo.tdata = tfifo_tdata[127:64];
-          axis_pfifo.tvalid = tfifo_tvalid;
-          axis_pfifo.tlast = 1'b0;
-          tfifo_tready = tfifo_has_metadata ? 1'b0 : axis_pfifo.tready;
-          sfifo_tready = 1'b0;
-       end
-       S_OUTPUT_METADATA: begin
           axis_pfifo.tdata = tfifo_tdata[63:0];
           axis_pfifo.tvalid = tfifo_tvalid;
           axis_pfifo.tlast = 1'b0;
@@ -606,7 +544,7 @@ module axis_stream_to_pkt_backpressured
 
        default: begin
           // Default to S_OUTPUT_HEADER
-          axis_pfifo.tdata = {packet_type,seq_id,tfifo_tdata[141:128],2'b00,flow_id};   // previously set to 3'b000 ?
+          axis_pfifo.tdata = {packet_type,seq_id,tfifo_tdata[76:64],3'b000,flow_id};
           axis_pfifo.tvalid = tfifo_tvalid;
           axis_pfifo.tlast = 1'b0;
           tfifo_tready = 1'b0;
@@ -647,4 +585,4 @@ module axis_stream_to_pkt_backpressured
           && (~tfifo_tvalid) && (input_state == S_INPUT_IDLE) && (burst_state == S_NEW_BURST);
      end
 
-endmodule // axis_stream_to_pkt_extended_backpressured
+endmodule // axis_stream_to_pkt
