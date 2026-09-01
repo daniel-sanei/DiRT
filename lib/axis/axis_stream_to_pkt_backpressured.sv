@@ -245,19 +245,16 @@ module axis_stream_to_pkt_backpressured
         packet_time <= 64'h0;
         packet_has_metadata <= 1'b0;
         packet_rx_mimo_metadata <= 64'd0;
-     end else if ((input_state==S_INPUT_IDLE) && (burst_state == S_NEW_BURST) && ingress_beat) begin
-        // Start of first packet in a new burst.
-        packet_time <= start_time;
-        packet_has_metadata <= has_metadata;
-        packet_rx_mimo_metadata <= rx_mimo_metadata;
      end else if ((input_state==S_INPUT_IDLE) && ingress_beat) begin
         // Start of new packet within burst, add per packet time increment.
         // Note that the only time packets are not of length "packet_size"
         // is for an EOB packet or an Async abort (i.e) the last packet
         // So we never have to calculate a custom sized packet time increment.
-        packet_time <= packet_time + time_per_pkt;
         packet_has_metadata <= has_metadata;
         packet_rx_mimo_metadata <= rx_mimo_metadata;
+
+        // Condition satisfied --> start of first packet in a new burst.
+        packet_time <= (burst_state == S_NEW_BURST) ? start_time : packet_time + time_per_pkt;
      end
 
 

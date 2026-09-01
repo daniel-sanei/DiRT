@@ -103,6 +103,8 @@ module dsp_rx
       .flow_id(csr_rx_flow_id),
       .time_per_pkt(csr_rx_time_per_pkt),
       .burst_size(csr_rx_burst_size),
+      .has_metadata(1'b0),
+      .rx_mimo_metadata(64'b0),
       .abort(csr_rx_abort),
       // Status Flags
       .idle(csr_stream_to_pkt_idle),
